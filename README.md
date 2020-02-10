@@ -1,5 +1,5 @@
 ## SweyTooth - Unleashing Mayhem over Bluetooth Low Energy
-**This repository is part of a research outcome from the [ASSET Research Group](https://asset-group.github.io/disclosures/sweintooth/).**
+**This repository is part of a research outcome from the [ASSET Research Group](https://asset-group.github.io/disclosures/sweyntooth/).**
 ![attack_logo](sweintooth_logo.svg)
 
 SweynTooth captures a family of **12 vulnerabilities** (more under non-disclosure) across different Bluetooth Low Energy (BLE) software development kits (SDKs) of six major system-on-a-chip (SoC) vendors. The vulnerabilities expose flaws in specific BLE SoC implementations that allow an attacker in radio range to trigger **deadlocks, crashes** and **buffer overflows** or **completely bypass** **security** depending on the circumstances.

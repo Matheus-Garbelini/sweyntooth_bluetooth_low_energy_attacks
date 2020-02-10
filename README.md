@@ -18,7 +18,7 @@ python -m pip install nrfutil pyserial
 nrfutil dfu usb-serial -p COM_PORT -pkg nRF52_driver_firmware.zip
 ```
 
-The scripts work on Linux or Windows. You just need to change the `COM_PORT` parameter to match the nRF52840 port name. You can alternatively flash the firmware by using the [nRF Connect App for Destop](https://www.nordicsemi.com/Software-and-tools/Development-Tools/nRF-Connect-for-desktop), which gives a nice interface to flash the firmware.
+The scripts work on Linux or Windows. You just need to change the `COM_PORT` parameter to match the nRF52840 port name. You can alternatively flash the firmware by using the [nRF Connect App for Desktop](https://www.nordicsemi.com/Software-and-tools/Development-Tools/nRF-Connect-for-desktop), which gives a nice interface to flash the firmware.
 
 ### Running the proof of concept scripts
 

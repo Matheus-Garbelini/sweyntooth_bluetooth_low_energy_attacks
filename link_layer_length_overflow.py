@@ -51,7 +51,7 @@ print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
 def crash_timeout():
 	print(Fore.RED + "No advertisement from " + advertiser_address.upper() + 
 		' received\nThe device may have crashed!!!')
-	disable_timeout('scan_timeout')
+	#disable_timeout('scan_timeout')
 
 def scan_timeout():
 	scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(

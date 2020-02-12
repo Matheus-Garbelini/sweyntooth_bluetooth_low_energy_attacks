@@ -6,6 +6,10 @@ SweynTooth captures a family of **12 vulnerabilities** (more under non-disclosur
 
 You can check more information about the vulnerabilities, **available patches** and affected devices on [ASSET Research Group SweynTooth disclosure website](https://asset-group.github.io/disclosures/sweyntooth/).
 
+**Fitbit, August Smart Lock, Eve Energy, CubiTag** and other "Smart" things are affected.
+
+* Fitbiy Inspire Crash & CubiTag deadlock - https://www.youtube.com/watch?v=Iw8sIBLWE_w
+* Eve Energy & August Smart Lock crash - https://www.youtube.com/watch?v=rge1XeJVpag&t=6s
 
 ### Getting Started
 

@@ -74,3 +74,5 @@ The folder **captures** contains some sample captures of each vulnerability. We 
 
 ### Acknowledgements
 **This research was partially supported by [Keysight Technologies](https://www.keysight.com/sg/en/home.html).**
+* [Scapy](https://github.com/secdev/scapy) - Packet manipulation library.
+* [Colorama](https://github.com/tartley/colorama) - Cross-platform colored terminal text in Python.

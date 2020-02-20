@@ -1,6 +1,6 @@
 ## SweyTooth - Unleashing Mayhem over Bluetooth Low Energy
 **This repository is part of a research outcome from the [ASSET Research Group](https://asset-group.github.io/disclosures/sweyntooth/).**
-![attack_logo](sweintooth_logo.svg)
+![attack_logo](docs/setup.png)
 
 SweynTooth captures a family of **12 vulnerabilities** (more under non-disclosure) across different Bluetooth Low Energy (BLE) software development kits (SDKs) of six major system-on-a-chip (SoC) vendors. The vulnerabilities expose flaws in specific BLE SoC implementations that allow an attacker in radio range to trigger **deadlocks, crashes** and **buffer overflows** or **completely bypass** **security** depending on the circumstances.
 
@@ -8,13 +8,15 @@ You can check more information about the vulnerabilities, **available patches** 
 
 **Fitbit, August Smart Lock, Eve Energy, CubiTag** and other "Smart" things are affected.
 
-* Fitbiy Inspire Crash & CubiTag deadlock - https://www.youtube.com/watch?v=Iw8sIBLWE_w
+* Fitbit Inspire Crash & CubiTag deadlock - https://www.youtube.com/watch?v=Iw8sIBLWE_w
 * Eve Energy & August Smart Lock crash - https://www.youtube.com/watch?v=rge1XeJVpag&t=6s
 
 
 #### Libraries included in this PoC
 
 This PoC uses well maintained libraries such as [Scapy](https://github.com/secdev/scapy) and [Colorama](https://github.com/tartley/colorama). The BLE packet crafting and dissection is done via customized Scapy protocol layers ([bluetooth4LE](https://github.com/Matheus-Garbelini/sweyntooth_bluetooth_low_energy_attacks/blob/master/libs/scapy/layers/bluetooth4LE.py) and [bluetooth.py](https://github.com/Matheus-Garbelini/sweyntooth_bluetooth_low_energy_attacks/blob/master/libs/scapy/layers/bluetooth.py)). There's a [merge in progress](https://github.com/secdev/scapy/pull/2215) to include our additions in Scapy's main repository. 
+
+
 
 ### Getting Started
 
@@ -41,7 +43,7 @@ The first argument is the serial port name (generally /dev/ttyACM0 on Linux) and
 
 Taking as example the Key Size Overflow vulnerability,  the following output is given by the script if the vulnerable device hangs after the crash:
 
-![attack_logo](demo_output.png)
+![attack_logo](docs/demo_output.png)
 
 
 

@@ -129,7 +129,7 @@ while True:
             SCA=0, # Clock tolerance
 			)
 			# This means that the initiator will send the anchor point (Empty PDU) on channel 1 and stay there for every connection event)
-			conn_request[BTLE_ADV].Length=26 # Truncated, but CRC will be correct when sending over the air
+			conn_request[BTLE_ADV].Length=28 # Truncated, but CRC will be correct when sending over the air
 			#conn_request[BTLE_CONNECT_REQ].interval=0 # Clearing the interval time triggers the crash.
 			#conn_request[BTLE_ADV].timeout=0 # Clearing the supervision timeout triggers the crash.
 			# conn_request[BTLE_ADV].Length=247 # Lowering the length also trigger the crash in CC2540.

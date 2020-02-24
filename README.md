@@ -1,4 +1,4 @@
-## SweyTooth - Unleashing Mayhem over Bluetooth Low Energy
+## SweynTooth - Unleashing Mayhem over Bluetooth Low Energy
 **This repository is part of a research outcome from the [ASSET Research Group](https://asset-group.github.io/disclosures/sweyntooth/).**
 ![attack_logo](docs/setup.png)
 

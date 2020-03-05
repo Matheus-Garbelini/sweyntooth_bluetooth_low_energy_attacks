@@ -21,7 +21,7 @@ send_version_ind = False
 end_connection = False
 
 def send(scapy_pkt, print_tx=True):
-	driver.raw_send(raw(scapy_pkt))
+	driver.send(scapy_pkt)
 	if print_tx:
 		print(Fore.CYAN + "TX ---> " + scapy_pkt.summary()[7:])
 
@@ -52,6 +52,7 @@ print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
 def crash_timeout():
 	print(Fore.RED + "No advertisement from " + advertiser_address.upper() + 
 		' received\nThe device may have crashed!!!')
+	driver.save_pcap()
 	exit(0)
 
 def scan_timeout():
@@ -70,7 +71,7 @@ def scan_timeout():
 master_address = '5d:36:ac:90:0b:22'
 access_address = 0x9a328370
 # Open serial port of NRF52 Dongle
-driver = NRF52Dongle(serial_port, '115200')
+driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename = 'CC2540_connection_req_crash.pcap')
 # Send scan request
 scan_req = BTLE() / BTLE_ADV(RxAdd=0) / BTLE_SCAN_REQ(
             ScanA=master_address,
@@ -139,7 +140,6 @@ while True:
 
 			# Yes, we're sending raw link layer messages in Python. Don't tell anyone as this is forbidden!!!		
 			send(conn_request)
-			wrpcap('CC2540_connection_req_crash.pcap', conn_request)
 			print(Fore.YELLOW + 'Malformed connection request was sent')
 
 			# Start the timeout to detect crashes

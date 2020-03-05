@@ -88,7 +88,7 @@ class NRF52Dongle:
                 if self.n_debug:
                     print("Hex: " + binascii.hexlify(data).upper())
                 if self.logs_pcap and data != None:
-                    self.packets_buffer.append(NORDIC_BLE(board=75, protocol=2, flags=0x3) / BTLE(data))
+                    self.packets_buffer.append(NORDIC_BLE(board=75, protocol=2, flags=0x01) / BTLE(data))
 
                 return data
         # Receive logs from dongle

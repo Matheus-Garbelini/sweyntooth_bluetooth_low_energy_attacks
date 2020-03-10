@@ -25,7 +25,7 @@ SweynTooth uses the [Nordic nRF52840 Dongle](https://www.nordicsemi.com/?sc_item
 The binary of our firmware code is on the `nRF52_driver_firmware.zip` file. You need to install nrfutil tool to flash the firmware on the board. Remember to put the nRF52840 on DFU mode before flashing (reset the USB dongle while it is connected to your PC by pressing the reset button). You can run the following commands to install the Python dependencies and to flash the firmware:
 
 ```shell
-python -m pip install nrfutil pyserial
+python -m pip install nrfutil pyserial pycryptodome
 nrfutil dfu usb-serial -p COM_PORT -pkg nRF52_driver_firmware.zip
 ```
 
@@ -47,26 +47,38 @@ Taking as example the Key Size Overflow vulnerability,  the following output is 
 
 
 
+#### Zero LTK Installation ([CVE-2019-19194](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19194))
+
+The most critical SweynTooth vulnerability is the Zero LTK Installation which allows an attacker to fully bypass the latest Bluetooth pairing procedure (secure connections) by forcing an encryption setup procedure with a zero filled LTK. In order to test your device against this vulnerability, the device must accept or support secure connections as pairing method. You can run the PoC as follows:
+
+```shell
+python Telink_zero_ltk_installation.py COM7 A4:C1:38:D8:AD:A9
+```
+
+Note that the arguments ` COM7 ` and `A4:C1:38:D8:AD:A9` are different based on your setup. If the device is vulnerable, the PoC outputs the following:
+
+![zero_ltk](docs/zero_ltk.png)
+
+
+
 #### Available BLE exploits
 
 Each exploit script corresponds to one flaw. The following summary table captures the correspondence between the vulnerability and a script to exploit the vulnerability on the affected SoCs.
 
-| Vulnerability              | CVE(s)                                                       | Vendor             | Script file                        |
-| -------------------------- | ------------------------------------------------------------ | :----------------- | :--------------------------------- |
-| Link Layer Length Overflow | [CVE-2019-16336](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-16336)<br />[CVE-2019-17519](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17519) | Cypress<br />NXP   | link_layer_length_overflow.py      |
-| LLID Deadlock              | [CVE-2019-17061](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17061)<br />[CVE-2019-17060](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17060) | Cypress<br />NXP   | llid_dealock.py                    |
-| Truncated L2CAP            | [CVE-2019-17517](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17517) | Dialog             | DA14580_exploit_att_crash.py       |
-| Silent Length Overflow     | [CVE-2019-17518](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17518) | Dialog             | DA14680_exploit_silent_overflow.py |
-| Public Key Crash           | [CVE-2019-17520](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17520) | Texas Instruments  | CC2640R2_public_key_crash.py       |
-| Invalid Connection Request | [CVE-2019-19193](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19193) | Texas Instruments  | CC_connection_req_crash.py         |
-| Invalid L2CAP Fragment     | [CVE-2019-19195](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19195) | Microchip          | Microchip_invalid_lcap_fragment.py |
-| Sequential ATT Deadlock    | [CVE-2019-19192](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19192) | STMicroelectronics | sequential_att_deadlock.py         |
-| Key Size Overflow          | [CVE-2019-19196](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19196) | Telink             | Telink_key_size_overflow.py        |
-| Zero LTK Installation      | [CVE-2019-19194](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19194) | Telink             | **TBA**                            |
+| Vulnerability              | CVE(s)                                                       | Vendor             | Script file                         |
+| -------------------------- | ------------------------------------------------------------ | :----------------- | :---------------------------------- |
+| Link Layer Length Overflow | [CVE-2019-16336](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-16336)<br />[CVE-2019-17519](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17519) | Cypress<br />NXP   | link_layer_length_overflow.py       |
+| LLID Deadlock              | [CVE-2019-17061](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17061)<br />[CVE-2019-17060](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17060) | Cypress<br />NXP   | llid_dealock.py                     |
+| Truncated L2CAP            | [CVE-2019-17517](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17517) | Dialog             | DA14580_exploit_att_crash.py        |
+| Silent Length Overflow     | [CVE-2019-17518](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17518) | Dialog             | DA14680_exploit_silent_overflow.py  |
+| Public Key Crash           | [CVE-2019-17520](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-17520) | Texas Instruments  | CC2640R2_public_key_crash.py        |
+| Invalid Connection Request | [CVE-2019-19193](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19193) | Texas Instruments  | CC_connection_req_crash.py          |
+| Invalid L2CAP Fragment     | [CVE-2019-19195](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19195) | Microchip          | Microchip_invalid_lcap_fragment.py  |
+| Sequential ATT Deadlock    | [CVE-2019-19192](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19192) | STMicroelectronics | sequential_att_deadlock.py          |
+| Key Size Overflow          | [CVE-2019-19196](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19196) | Telink             | Telink_key_size_overflow.py         |
+| Zero LTK Installation      | [CVE-2019-19194](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19194) | Telink             | **Telink_zero_ltk_installation.py** |
 
 Generally, products using the affected SoCs employ a watchdog to automatically restart the BLE SoC in the case a fault occurs, hence not all products can be deadlocked. Nevertheless, it should be possible to get some visual or audio indication from the product if the same crashes and restarts.
-
-
 
 ### Captures
 
@@ -77,4 +89,4 @@ The folder **captures** contains some sample captures of each vulnerability. We 
 ### Acknowledgements
 **This research was partially supported by [Keysight Technologies](https://www.keysight.com/sg/en/home.html).**
 * [Scapy](https://github.com/secdev/scapy) - Packet manipulation library.
-* [Colorama](https://github.com/tartley/colorama) - Cross-platform colored terminal text in Python.
+* [Colorama](https://github.com/tartley/colorama) - Cross-platform coloured terminal text in Python.

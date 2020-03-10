@@ -13,25 +13,25 @@ import ctypes
 import functools
 import socket
 import struct
-from select import select
 from ctypes import sizeof
+from select import select
 
 from scapy.config import conf
+from scapy.consts import WINDOWS
 from scapy.data import DLT_BLUETOOTH_HCI_H4, DLT_BLUETOOTH_HCI_H4_WITH_PHDR
-from scapy.packet import bind_layers, Packet
+from scapy.data import MTU
+from scapy.error import warning
 from scapy.fields import ByteEnumField, ByteField, Field, FieldLenField, \
     FieldListField, FlagsField, IntField, LEShortEnumField, LEShortField, \
     LenField, PacketListField, SignedByteField, StrField, StrFixedLenField, \
     StrLenField, XByteField, BitField, XLELongField, PadField, UUIDField, \
     XStrLenField, ConditionalField
-from scapy.supersocket import SuperSocket
+from scapy.modules import six
+from scapy.packet import bind_layers, Packet
 from scapy.sendrecv import sndrcv
-from scapy.data import MTU
-from scapy.consts import WINDOWS
-from scapy.error import warning
+from scapy.supersocket import SuperSocket
 from scapy.utils import lhex, mac2str, str2mac
 from scapy.volatile import RandMAC
-from scapy.modules import six
 
 
 ##########
@@ -664,6 +664,11 @@ class SM_Public_Key(Packet):
     name = "Public Key"
     fields_desc = [StrFixedLenField("key_x", b'\x00' * 32, 32),
                    StrFixedLenField("key_y", b'\x00' * 32, 32),]
+
+class SM_Security_Request(Packet):
+    name = "Security Request"
+    fields_desc = [BitField("authentication", 0, 8), ]
+
 
 class SM_DHKey_Check(Packet):
     name = "DHKey Check"
@@ -1352,6 +1357,7 @@ bind_layers(SM_Hdr, SM_Identity_Address_Information, sm_command=9)
 bind_layers(SM_Hdr, SM_Signing_Information, sm_command=0x0a)
 bind_layers(SM_Hdr, SM_Public_Key, sm_command=0x0c)
 bind_layers(SM_Hdr, SM_DHKey_Check, sm_command=0x0d)
+bind_layers(SM_Hdr, SM_Security_Request, sm_command=0x0b)
 
 
 ###########

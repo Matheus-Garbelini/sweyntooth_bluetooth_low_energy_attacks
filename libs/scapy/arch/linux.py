@@ -27,14 +27,16 @@ import scapy.utils
 import scapy.utils6
 from scapy.packet import Packet, Padding
 from scapy.config import conf
-from scapy.data import MTU, ETH_P_ALL
+from scapy.data import MTU, ETH_P_ALL, SOL_PACKET, SO_ATTACH_FILTER, \
+    SO_TIMESTAMPNS
 from scapy.supersocket import SuperSocket
 from scapy.error import warning, Scapy_Exception, \
-    ScapyInvalidPlatformException
+    ScapyInvalidPlatformException, log_runtime
 from scapy.arch.common import get_if, compile_filter
 import scapy.modules.six as six
 from scapy.modules.six.moves import range
 
+from scapy.arch.common import get_if_raw_hwaddr  # noqa: F401
 
 # From bits/ioctls.h
 SIOCGIFHWADDR = 0x8927          # Get hardware address
@@ -70,11 +72,6 @@ PACKET_MR_MULTICAST = 0
 PACKET_MR_PROMISC = 1
 PACKET_MR_ALLMULTI = 2
 
-# From bits/socket.h
-SOL_PACKET = 263
-# From asm/socket.h
-SO_ATTACH_FILTER = 26
-
 # From net/route.h
 RTF_UP = 0x0001  # Route usable
 RTF_REJECT = 0x0200
@@ -88,12 +85,11 @@ PACKET_OUTGOING = 4  # Outgoing of any type
 PACKET_LOOPBACK = 5  # MC/BRD frame looped back
 PACKET_USER = 6  # To user space
 PACKET_KERNEL = 7  # To kernel space
+PACKET_AUXDATA = 8
 PACKET_FASTROUTE = 6  # Fastrouted frame
 # Unused, PACKET_FASTROUTE and PACKET_LOOPBACK are invisible to user space
 
-
-def get_if_raw_hwaddr(iff):
-    return struct.unpack("16xh6s8x", get_if(iff, SIOCGIFHWADDR))
+# Utils
 
 
 def get_if_raw_addr(iff):
@@ -328,7 +324,7 @@ def read_routes6():
 
     lifaddr = in6_getifaddr()
     for line in f.readlines():
-        d, dp, s, sp, nh, metric, rc, us, fl, dev = line.split()
+        d, dp, _, _, nh, metric, rc, us, fl, dev = line.split()
         metric = int(metric, 16)
         fl = int(fl, 16)
         dev = plain_str(dev)
@@ -340,8 +336,6 @@ def read_routes6():
 
         d = proc2r(d)
         dp = int(dp, 16)
-        s = proc2r(s)
-        sp = int(sp, 16)
         nh = proc2r(nh)
 
         cset = []  # candidate set (possible source addresses)
@@ -448,7 +442,6 @@ class L2Socket(SuperSocket):
                 " Use set_iface_monitor instead."
             )
         self.ins = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(type))  # noqa: E501
-        self.ins.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 0)
         if not nofilter:
             if conf.except_filter:
                 if filter:
@@ -461,12 +454,35 @@ class L2Socket(SuperSocket):
             set_promisc(self.ins, self.iface)
         self.ins.bind((self.iface, type))
         _flush_fd(self.ins)
-        self.ins.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2**30)
+        self.ins.setsockopt(
+            socket.SOL_SOCKET,
+            socket.SO_RCVBUF,
+            conf.bufsize
+        )
+        if not six.PY2:
+            # Receive Auxiliary Data (VLAN tags)
+            try:
+                self.ins.setsockopt(SOL_PACKET, PACKET_AUXDATA, 1)
+                self.ins.setsockopt(
+                    socket.SOL_SOCKET,
+                    SO_TIMESTAMPNS,
+                    1
+                )
+                self.auxdata_available = True
+            except OSError:
+                # Note: Auxiliary Data is only supported since
+                #       Linux 2.6.21
+                msg = "Your Linux Kernel does not support Auxiliary Data!"
+                log_runtime.info(msg)
         if isinstance(self, L2ListenSocket):
             self.outs = None
         else:
             self.outs = self.ins
-            self.outs.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 2**30)
+            self.outs.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_SNDBUF,
+                conf.bufsize
+            )
         sa_ll = self.ins.getsockname()
         if sa_ll[3] in conf.l2types:
             self.LL = conf.l2types[sa_ll[3]]
@@ -482,16 +498,20 @@ class L2Socket(SuperSocket):
     def close(self):
         if self.closed:
             return
-        if self.promisc and self.ins:
-            set_promisc(self.ins, self.iface, 0)
+        try:
+            if self.promisc and self.ins:
+                set_promisc(self.ins, self.iface, 0)
+        except (AttributeError, OSError):
+            pass
         SuperSocket.close(self)
 
     def recv_raw(self, x=MTU):
         """Receives a packet, then returns a tuple containing (cls, pkt_data, time)"""  # noqa: E501
-        pkt, sa_ll = self.ins.recvfrom(x)
+        pkt, sa_ll, ts = self._recv_raw(self.ins, x)
         if self.outs and sa_ll[2] == socket.PACKET_OUTGOING:
             return None, None, None
-        ts = get_last_packet_timestamp(self.ins)
+        if ts is None:
+            ts = get_last_packet_timestamp(self.ins)
         return self.LL, pkt, ts
 
     def send(self, x):
@@ -520,11 +540,12 @@ class L3PacketSocket(L2Socket):
     def recv(self, x=MTU):
         pkt = SuperSocket.recv(self, x)
         if pkt and self.lvl == 2:
-            pkt = pkt.payload
+            pkt.payload.time = pkt.time
+            return pkt.payload
         return pkt
 
     def send(self, x):
-        iff, a, gw = x.route()
+        iff = x.route()[0]
         if iff is None:
             iff = conf.iface
         sdto = (iff, self.type)

@@ -15,7 +15,7 @@
 # scapy.contrib.description = VLAN Trunking Protocol (VTP)
 # scapy.contrib.status = loads
 
-"""
+r"""
     VTP Scapy Extension
     ~~~~~~~~~~~~~~~~~~~~~
 
@@ -34,24 +34,28 @@
         MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
         GNU General Public License for more details.
 
-    :TODO
+    :TODO:
 
         - Join messages
         - RE MD5 hash calculation
-        - Have a closer look at 8 byte padding in summary adv.
+        - Have a closer look at 8 byte padding in summary adv:
+
             "debug sw-vlan vtp packets" says the TLV length is invalid,
-            when I change the values
-            b'\x00\x00\x00\x01\x06\x01\x00\x02'
-                * \x00\x00 ?
-                * \x00\x01 tlvtype?
-                * \x06 length?
-                * \x00\x02 value?
+            when I change the values:
+
+            ``b'\x00\x00\x00\x01\x06\x01\x00\x02'``
+
+            * \x00\x00 ?
+            * \x00\x01 tlvtype?
+            * \x06 length?
+            * \x00\x02 value?
+
         - h2i function for VTPTimeStampField
 
     :References:
 
-        - Understanding VLAN Trunk Protocol (VTP)
-        http://www.cisco.com/en/US/tech/tk389/tk689/technologies_tech_note09186a0080094c52.shtml
+        - | Understanding VLAN Trunk Protocol (VTP)
+          | http://www.cisco.com/en/US/tech/tk389/tk689/technologies_tech_note09186a0080094c52.shtml  # noqa: E501
 """
 
 from scapy.packet import Packet, bind_layers
@@ -59,6 +63,7 @@ from scapy.fields import ByteEnumField, ByteField, ConditionalField, \
     FieldLenField, IPField, PacketListField, ShortField, SignedIntField, \
     StrFixedLenField, StrLenField, XIntField
 from scapy.layers.l2 import SNAP
+from scapy.compat import chb
 from scapy.config import conf
 
 _VTP_VLAN_TYPE = {
@@ -98,25 +103,30 @@ class VTPVlanInfoTlv(Packet):
 class VTPVlanInfo(Packet):
     name = "VTP VLAN Info"
     fields_desc = [
-        ByteField("len", None),  # FIXME: compute length
+        ByteField("len", None),
         ByteEnumField("status", 0, {0: "active", 1: "suspended"}),
         ByteEnumField("type", 1, _VTP_VLAN_TYPE),
         FieldLenField("vlannamelen", None, "vlanname", "B"),
         ShortField("vlanid", 1),
         ShortField("mtu", 1500),
         XIntField("dot10index", None),
-        StrLenField("vlanname", "default", length_from=lambda pkt: 4 * ((pkt.vlannamelen + 3) / 4)),  # noqa: E501
-        ConditionalField(PacketListField("tlvlist", [], VTPVlanInfoTlv,
-                                         length_from=lambda pkt:pkt.len - 12 - (4 * ((pkt.vlannamelen + 3) / 4))),  # noqa: E501
-                         lambda pkt:pkt.type not in [1, 2])
+        StrLenField("vlanname", "default",
+                    length_from=lambda pkt: 4 * ((pkt.vlannamelen + 3) // 4)),
+        ConditionalField(
+            PacketListField(
+                "tlvlist", [], VTPVlanInfoTlv,
+                length_from=lambda pkt: pkt.len - 12 - (4 * ((pkt.vlannamelen + 3) // 4))  # noqa: E501
+            ),
+            lambda pkt:pkt.type not in [1, 2]
+        )
     ]
 
     def post_build(self, p, pay):
-        vlannamelen = 4 * ((len(self.vlanname) + 3) / 4)
+        vlannamelen = 4 * ((len(self.vlanname) + 3) // 4)
 
         if self.len is None:
             tmp_len = vlannamelen + 12
-            p = chr(tmp_len & 0xff) + p[1:]
+            p = chb(tmp_len & 0xff) + p[1:]
 
         # Pad vlan name with zeros if vlannamelen > len(vlanname)
         tmp_len = vlannamelen - len(self.vlanname)
@@ -180,7 +190,7 @@ class VTP(Packet):
     def post_build(self, p, pay):
         if self.domnamelen is None:
             domnamelen = len(self.domname.strip(b"\x00"))
-            p = p[:3] + chr(domnamelen & 0xff) + p[4:]
+            p = p[:3] + chb(domnamelen & 0xff) + p[4:]
 
         p += pay
 

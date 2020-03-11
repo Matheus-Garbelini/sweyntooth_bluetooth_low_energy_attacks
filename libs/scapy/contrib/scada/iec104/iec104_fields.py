@@ -3,12 +3,11 @@
 # Copyright (C) Thomas Tannhaeuser <hecke@naberius.de>
 # This program is published under a GPLv2 license
 
-# scapy.contrib.description = IEC-60870-5-104 layer specific fields
-# scapy.contrib.status = loads
+# scapy.contrib.status = skip
 
 """
     field type definitions used by iec 60870-5-104 layer (iec104)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     :description:
 
@@ -89,11 +88,11 @@ class IEC104SequenceNumber(Field):
     (see EN 60870-5-104:2006, p. 13):
 
       bit ->7   6   5   4   3   2   1   0
-          +---+---+---+---+---+---+---+---+
-          |   |   |   |   |   |   |LSB| 0 |  byte 0
-          +---+---+---+---+---+---+---+---+
-          |MSB|   |   |   |   |   |   |   |  byte 1
-          +---+---+---+---+---+---+---+---+
+          +---+---+---+---+---+---+---+---+---------+
+          |   |   |   |   |   |   |LSB| 0 | =byte 0 |
+          +---+---+---+---+---+---+---+---+---------+
+          |MSB|   |   |   |   |   |   |   | =byte 1 |
+          +---+---+---+---+---+---+---+---+---------+
 
     """
 

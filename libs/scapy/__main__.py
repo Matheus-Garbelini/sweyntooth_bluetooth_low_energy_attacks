@@ -11,4 +11,5 @@ http://www.secdev.org/projects/scapy
 """
 
 from scapy.main import interact
+
 interact()

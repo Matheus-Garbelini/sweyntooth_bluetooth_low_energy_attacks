@@ -16,17 +16,20 @@ from collections import defaultdict
 from scapy.compat import lambda_tuple_converter
 from scapy.config import conf
 from scapy.base_classes import BasePacket, BasePacketList, _CanvasDumpExtended
+from scapy.fields import IPField, ShortEnumField, PacketField
 from scapy.utils import do_graph, hexdump, make_table, make_lined_table, \
     make_tex_table, issubtype
-from scapy.extlib import plt, MATPLOTLIB_INLINED, MATPLOTLIB_DEFAULT_PLOT_KARGS
+from scapy.extlib import plt, Line2D, \
+    MATPLOTLIB_INLINED, MATPLOTLIB_DEFAULT_PLOT_KARGS
 from functools import reduce
 import scapy.modules.six as six
 from scapy.modules.six.moves import range, zip
-
-
+from scapy.compat import Optional, List, Union, Tuple, Dict, Any, Callable
+from scapy.packet import Packet
 #############
 #  Results  #
 #############
+
 
 class PacketList(BasePacketList, _CanvasDumpExtended):
     __slots__ = ["stats", "res", "listname"]
@@ -46,18 +49,23 @@ class PacketList(BasePacketList, _CanvasDumpExtended):
         self.listname = name
 
     def __len__(self):
+        # type: () -> int
         return len(self.res)
 
     def _elt2pkt(self, elt):
+        # type: (Packet) -> Packet
         return elt
 
     def _elt2sum(self, elt):
+        # type: (Packet) -> str
         return elt.summary()
 
     def _elt2show(self, elt):
+        # type: (Packet) -> str
         return self._elt2sum(elt)
 
     def __repr__(self):
+        # type: () -> str
         stats = {x: 0 for x in self.stats}
         other = 0
         for r in self.res:
@@ -85,9 +93,12 @@ class PacketList(BasePacketList, _CanvasDumpExtended):
                                ct.punct(">"))
 
     def __getstate__(self):
+        # type: () -> Dict[str, Union[List[PacketField], List[Packet], str]]
         """
-        create a basic representation of the instance, used in conjunction with __setstate__() e.g. by pickle  # noqa: E501
-        :return: dict representing this instance
+        Creates a basic representation of the instance, used in
+        conjunction with __setstate__() e.g. by pickle
+
+        :returns: dict representing this instance
         """
         state = {
             'res': self.res,
@@ -97,8 +108,11 @@ class PacketList(BasePacketList, _CanvasDumpExtended):
         return state
 
     def __setstate__(self, state):
+        # type: (Dict[str, Union[List[PacketField], List[Packet], str]]) -> None  # noqa: E501
         """
-        set instance attributes to values given by state, used in conjunction with __getstate__() e.g. by pickle  # noqa: E501
+        Sets instance attributes to values given by state, used in
+        conjunction with __getstate__() e.g. by pickle
+
         :param state: dict representing this instance
         """
         self.res = state['res']
@@ -106,6 +120,7 @@ class PacketList(BasePacketList, _CanvasDumpExtended):
         self.listname = state['listname']
 
     def __getattr__(self, attr):
+        # type: (str) -> Any
         return getattr(self.res, attr)
 
     def __getitem__(self, item):
@@ -117,18 +132,20 @@ class PacketList(BasePacketList, _CanvasDumpExtended):
                                   name="mod %s" % self.listname)
         return self.res.__getitem__(item)
 
-    def __getslice__(self, *args, **kargs):
-        return self.__class__(self.res.__getslice__(*args, **kargs),
-                              name="mod %s" % self.listname)
-
     def __add__(self, other):
+        # type: (PacketList) -> PacketList
         return self.__class__(self.res + other.res,
                               name="%s+%s" % (self.listname, other.listname))
 
     def summary(self, prn=None, lfilter=None):
+        # type: (Optional[Callable], Optional[Callable]) -> None
         """prints a summary of each packet
-prn:     function to apply to each packet instead of lambda x:x.summary()
-lfilter: truth function to apply to each packet to decide whether it will be displayed"""  # noqa: E501
+
+        :param prn: function to apply to each packet instead of
+                    lambda x:x.summary()
+        :param lfilter: truth function to apply to each packet to decide
+                        whether it will be displayed
+        """
         for r in self.res:
             if lfilter is not None:
                 if not lfilter(r):
@@ -139,9 +156,14 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
                 print(prn(r))
 
     def nsummary(self, prn=None, lfilter=None):
+        # type: (Optional[Callable], Optional[Callable]) -> None
         """prints a summary of each packet with the packet's number
-prn:     function to apply to each packet instead of lambda x:x.summary()
-lfilter: truth function to apply to each packet to decide whether it will be displayed"""  # noqa: E501
+
+        :param prn: function to apply to each packet instead of
+                    lambda x:x.summary()
+        :param lfilter: truth function to apply to each packet to decide
+                        whether it will be displayed
+        """
         for i, res in enumerate(self.res):
             if lfilter is not None:
                 if not lfilter(res):
@@ -157,29 +179,35 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         self.show()
 
     def show(self, *args, **kargs):
+        # type: (Any, Any) -> None
         """Best way to display the packet list. Defaults to nsummary() method"""  # noqa: E501
         return self.nsummary(*args, **kargs)
 
     def filter(self, func):
+        # type: (Callable) -> PacketList
         """Returns a packet list filtered by a truth function. This truth
         function has to take a packet as the only argument and return a boolean value."""  # noqa: E501
         return self.__class__([x for x in self.res if func(x)],
                               name="filtered %s" % self.listname)
 
     def make_table(self, *args, **kargs):
+        # type: (Any, Any) -> None
         """Prints a table using a function that returns for each packet its head column value, head row value and displayed value  # noqa: E501
         ex: p.make_table(lambda x:(x[IP].dst, x[TCP].dport, x[TCP].sprintf("%flags%")) """  # noqa: E501
         return make_table(self.res, *args, **kargs)
 
     def make_lined_table(self, *args, **kargs):
+        # type: (Any, Any) -> None
         """Same as make_table, but print a table with lines"""
         return make_lined_table(self.res, *args, **kargs)
 
     def make_tex_table(self, *args, **kargs):
+        # type: (Any, Any) -> None
         """Same as make_table, but print a table with LaTeX syntax"""
         return make_tex_table(self.res, *args, **kargs)
 
     def plot(self, f, lfilter=None, plot_xy=False, **kargs):
+        # type: (Callable, Optional[Callable], bool, Any) -> Line2D
         """Applies a function to each packet to get a value that will be plotted
         with matplotlib. A list of matplotlib.lines.Line2D is returned.
 
@@ -211,6 +239,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         return lines
 
     def diffplot(self, f, delay=1, lfilter=None, **kargs):
+        # type: (Callable, int, Optional[Callable], Any) -> Line2D
         """diffplot(f, delay=1, lfilter=None)
         Applies a function to couples (l[i],l[i+delay])
 
@@ -238,6 +267,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         return lines
 
     def multiplot(self, f, lfilter=None, plot_xy=False, **kargs):
+        # type: (Callable, Optional[Callable], bool, Any) -> Line2D
         """Uses a function that returns a label and a value for this label, then
         plots all the values label by label.
 
@@ -255,7 +285,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
             lst_pkts = (f(*e) for e in self.res if lfilter(*e))
 
         # Apply the function f to the packets
-        d = {}
+        d = {}  # type: Dict[str, List[float]]
         for k, v in lst_pkts:
             d.setdefault(k, []).append(v)
 
@@ -278,11 +308,13 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         return lines
 
     def rawhexdump(self):
+        # type: (Optional[Callable]) -> None
         """Prints an hexadecimal dump of each packet in the list"""
         for p in self:
             hexdump(self._elt2pkt(p))
 
     def hexraw(self, lfilter=None):
+        # type: (Optional[Callable]) -> None
         """Same as nsummary(), except that if a packet has a Raw layer, it will be hexdumped  # noqa: E501
         lfilter: a truth function that decides whether a packet must be displayed"""  # noqa: E501
         for i, res in enumerate(self.res):
@@ -296,6 +328,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
                 hexdump(p.getlayer(conf.raw_layer).load)
 
     def hexdump(self, lfilter=None):
+        # type: (Optional[Callable]) -> None
         """Same as nsummary(), except that packets are also hexdumped
         lfilter: a truth function that decides whether a packet must be displayed"""  # noqa: E501
         for i, res in enumerate(self.res):
@@ -308,6 +341,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
             hexdump(p)
 
     def padding(self, lfilter=None):
+        # type: (Optional[Callable]) -> None
         """Same as hexraw(), for Padding layer"""
         for i, res in enumerate(self.res):
             p = self._elt2pkt(res)
@@ -319,6 +353,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
                     hexdump(p.getlayer(conf.padding_layer).load)
 
     def nzpadding(self, lfilter=None):
+        # type: (Optional[Callable]) -> None
         """Same as padding() but only non null padding"""
         for i, res in enumerate(self.res):
             p = self._elt2pkt(res)
@@ -335,13 +370,17 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
     def conversations(self, getsrcdst=None, **kargs):
         """Graphes a conversations between sources and destinations and display it
         (using graphviz and imagemagick)
-        getsrcdst: a function that takes an element of the list and
-                   returns the source, the destination and optionally
-                   a label. By default, returns the IP source and
-                   destination from IP and ARP layers
-        type: output type (svg, ps, gif, jpg, etc.), passed to dot's "-T" option  # noqa: E501
-        target: filename or redirect. Defaults pipe to Imagemagick's display program  # noqa: E501
-        prog: which graphviz program to use"""
+
+        :param getsrcdst: a function that takes an element of the list and
+            returns the source, the destination and optionally
+            a label. By default, returns the IP source and
+            destination from IP and ARP layers
+        :param type: output type (svg, ps, gif, jpg, etc.), passed to dot's
+            "-T" option
+        :param target: filename or redirect. Defaults pipe to Imagemagick's
+            display program
+        :param prog: which graphviz program to use
+        """
         if getsrcdst is None:
             def getsrcdst(pkt):
                 """Extract src and dst addresses"""
@@ -377,6 +416,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         return do_graph(gr, **kargs)
 
     def afterglow(self, src=None, event=None, dst=None, **kargs):
+        # type: (Optional[Callable], Optional[Callable], Optional[Callable], Any) -> None  # noqa: E501
         """Experimental clone attempt of http://sourceforge.net/projects/afterglow
         each datum is reduced as src -> event -> dst and the data are graphed.
         by default we have IP.src -> IP.dport -> IP.dst"""
@@ -386,9 +426,9 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
             event = lambda x: x['IP'].dport
         if dst is None:
             dst = lambda x: x['IP'].dst
-        sl = {}
-        el = {}
-        dl = {}
+        sl = {}  # type: Dict[IPField, Tuple[int, List[ShortEnumField]]]
+        el = {}  # type: Dict[ShortEnumField, Tuple[int, List[IPField]]]
+        dl = {}  # type: Dict[IPField, ShortEnumField]
         for i in self.res:
             try:
                 s, e, d = src(i), event(i), dst(i)
@@ -411,11 +451,6 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
                 dl[d] = dl.get(d, 0) + 1
             except Exception:
                 continue
-
-        import math
-
-        def normalize(n):
-            return 2 + math.log(n) / 4.0
 
         def minmax(x):
             m, M = reduce(lambda a, b: (min(a[0], b[0]), max(a[1], b[1])),
@@ -440,11 +475,11 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         gr += "# event nodes\n"
         for e in el:
             n, _ = el[e]
-            n = n = 1 + float(n - mine) / (maxe - mine)
+            n = 1 + float(n - mine) / (maxe - mine)
             gr += '"evt.%s" [label = "%s", shape=circle, fillcolor="#00FFFF", style=filled, fixedsize=1, height=%.2f, width=%.2f];\n' % (repr(e), repr(e), n, n)  # noqa: E501
         for d in dl:
             n = dl[d]
-            n = n = 1 + float(n - mind) / (maxd - mind)
+            n = 1 + float(n - mind) / (maxd - mind)
             gr += '"dst.%s" [label = "%s", shape=triangle, fillcolor="#0000ff", style=filled, fixedsize=1, height=%.2f, width=%.2f];\n' % (repr(d), repr(d), n, n)  # noqa: E501
 
         gr += "###\n"
@@ -461,6 +496,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         return do_graph(gr, **kargs)
 
     def canvas_dump(self, **kargs):
+        # type: (Any) -> Any  # Using Any since pyx is imported later
         import pyx
         d = pyx.document.document()
         len_res = len(self.res)
@@ -476,6 +512,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         return d
 
     def sr(self, multi=0):
+        # type: (int) -> Tuple[SndRcvList, PacketList]
         """sr([multi=1]) -> (SndRcvList, PacketList)
         Matches packets in the list and return ( (matched couples), (unmatched packets) )"""  # noqa: E501
         remain = self.res[:]
@@ -538,6 +575,7 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
         return dict(sessions)
 
     def replace(self, *args, **kargs):
+        # type: (Any, Any) -> PacketList
         """
         lst.replace(<field>,[<oldvalue>,]<newvalue>)
         lst.replace( (fld,[ov],nv),(fld,[ov,]nv),...)
@@ -570,15 +608,98 @@ lfilter: truth function to apply to each packet to decide whether it will be dis
             x.append(p)
         return x
 
+    def getlayer(self, cls,  # type: Packet
+                 nb=None,  # type: Optional[int]
+                 flt=None,  # type: Optional[Dict[str, Any]]
+                 name=None,  # type: Optional[str]
+                 stats=None  # type: Optional[List[Packet]]
+                 ):
+        # type: (...) -> PacketList
+        """Returns the packet list from a given layer.
+
+        See ``Packet.getlayer`` for more info.
+
+        :param cls: search for a layer that is an instance of ``cls``
+        :type cls: Type[scapy.packet.Packet]
+
+        :param nb: return the nb^th layer that is an instance of ``cls``
+        :type nb: Optional[int]
+
+        :param flt: filter parameters for ``Packet.getlayer``
+        :type flt: Optional[Dict[str, Any]]
+
+        :param name: optional name for the new PacketList
+        :type name: Optional[str]
+
+        :param stats: optional list of protocols to give stats on; if not
+                      specified, inherits from this PacketList.
+        :type stats: Optional[List[Type[scapy.packet.Packet]]]
+        :rtype: scapy.plist.PacketList
+        """
+        if name is None:
+            name = "{} layer {}".format(self.listname, cls.__name__)
+        if stats is None:
+            stats = self.stats
+
+        getlayer_arg = {}  # type: Dict[str, Any]
+        if flt is not None:
+            getlayer_arg.update(flt)
+        getlayer_arg['cls'] = cls
+        if nb is not None:
+            getlayer_arg['nb'] = nb
+
+        # Only return non-None getlayer results
+        return PacketList([
+            pc for pc in (p.getlayer(**getlayer_arg) for p in self.res)
+            if pc is not None],
+            name, stats
+        )
+
+    def convert_to(self, other_cls, name=None, stats=None):
+        # type: (Packet, Optional[str], Optional[List[Packet]]) -> PacketList
+        """Converts all packets to another type.
+
+        See ``Packet.convert_to`` for more info.
+
+        :param other_cls: reference to a Packet class to convert to
+        :type other_cls: Type[scapy.packet.Packet]
+
+        :param name: optional name for the new PacketList
+        :type name: Optional[str]
+
+        :param stats: optional list of protocols to give stats on;
+                      if not specified, inherits from this PacketList.
+        :type stats: Optional[List[Type[scapy.packet.Packet]]]
+
+        :rtype: scapy.plist.PacketList
+        """
+        if name is None:
+            name = "{} converted to {}".format(
+                self.listname, other_cls.__name__)
+        if stats is None:
+            stats = self.stats
+
+        return PacketList(
+            [p.convert_to(other_cls) for p in self.res],
+            name, stats
+        )
+
 
 class SndRcvList(PacketList):
-    __slots__ = []
+    __slots__ = []  # type: List[str]
 
-    def __init__(self, res=None, name="Results", stats=None):
+    def __init__(self,
+                 res=None,  # type: Optional[Union[List[Packet], PacketList]]
+                 name="Results",  # type: str
+                 stats=None  # type: Optional[List[Packet]]
+                 ):
+        # type: (...) -> None
         PacketList.__init__(self, res, name, stats)
 
     def _elt2pkt(self, elt):
+        # type: (Tuple[Packet, Packet]) -> Packet
         return elt[1]
 
     def _elt2sum(self, elt):
+        # type: (Tuple[Packet, Packet]) -> str
         return "%s ==> %s" % (elt[0].summary(), elt[1].summary())

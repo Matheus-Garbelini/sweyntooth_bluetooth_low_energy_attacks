@@ -3,8 +3,7 @@
 # Copyright (C) Thomas Tannhaeuser <hecke@naberius.de>
 # This program is published under a GPLv2 license
 
-# scapy.contrib.description = IEC-60870-5-104 information elements
-# scapy.contrib.status = loads
+# scapy.contrib.status = skip
 
 """
     information element definitions used by IEC 60870-5-101/104
@@ -898,10 +897,6 @@ class IEC104_IE_QPM:
     KPA_FLAG_SMOOTHING_FACTOR = 2
     KPA_FLAG_LOWER_LIMIT_FOR_MEAS_TX = 3
     KPA_FLAG_UPPER_LIMIT_FOR_MEAS_TX = 4
-    GENERATED_ATTRIBUTES = [
-        ('KPA_FLAG_COMPATIBLE_RESERVED', 5, 31),
-        ('KPA_FLAG_PRIVATE_RESERVED', 32, 63)
-    ]
 
     KPA_FLAGS = {
         KPA_FLAG_UNUSED: 'unused',

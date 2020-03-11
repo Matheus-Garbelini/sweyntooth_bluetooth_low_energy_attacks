@@ -73,10 +73,19 @@ class ObservableDict(dict):
 ############
 
 class Field(six.with_metaclass(Field_metaclass, object)):
-    """For more information on how this work, please refer to
-       http://www.secdev.org/projects/scapy/files/scapydoc.pdf
-       chapter ``Adding a New Field''"""
-    __slots__ = ["name", "fmt", "default", "sz", "owners"]
+    """
+    For more information on how this work, please refer to
+    http://www.secdev.org/projects/scapy/files/scapydoc.pdf
+    chapter ``Adding a New Field``
+    """
+    __slots__ = [
+        "name",
+        "fmt",
+        "default",
+        "sz",
+        "owners",
+        "struct"
+    ]
     islist = 0
     ismutable = False
     holds_packets = 0
@@ -87,6 +96,7 @@ class Field(six.with_metaclass(Field_metaclass, object)):
             self.fmt = fmt
         else:
             self.fmt = "!" + fmt
+        self.struct = struct.Struct(self.fmt)
         self.default = self.any2i(None, default)
         self.sz = struct.calcsize(self.fmt)
         self.owners = []
@@ -137,7 +147,7 @@ class Field(six.with_metaclass(Field_metaclass, object)):
         Copy the network representation of field `val` (belonging to layer
         `pkt`) to the raw string packet `s`, and return the new string packet.
         """
-        return s + struct.pack(self.fmt, self.i2m(pkt, val))
+        return s + self.struct.pack(self.i2m(pkt, val))
 
     def getfield(self, pkt, s):
         """Extract an internal value from a string
@@ -149,7 +159,7 @@ class Field(six.with_metaclass(Field_metaclass, object)):
         first the raw packet string after having removed the extracted field,
         second the extracted field itself in internal representation.
         """
-        return s[self.sz:], self.m2i(pkt, struct.unpack(self.fmt, s[:self.sz])[0])  # noqa: E501
+        return s[self.sz:], self.m2i(pkt, self.struct.unpack(s[:self.sz])[0])
 
     def do_copy(self, x):
         if hasattr(x, "copy"):
@@ -165,7 +175,7 @@ class Field(six.with_metaclass(Field_metaclass, object)):
         return "<Field (%s).%s>" % (",".join(x.__name__ for x in self.owners), self.name)  # noqa: E501
 
     def copy(self):
-        return copy.deepcopy(self)
+        return copy.copy(self)
 
     def randval(self):
         """Return a volatile object whose value is both random and suitable for this field"""  # noqa: E501
@@ -195,11 +205,14 @@ class Emph(object):
     def __getattr__(self, attr):
         return getattr(self.fld, attr)
 
-    def __hash__(self):
-        return hash(self.fld)
-
     def __eq__(self, other):
         return self.fld == other
+
+    def __ne__(self, other):
+        # Python 2.7 compat
+        return not self == other
+
+    __hash__ = None
 
 
 class ActionField(object):
@@ -337,6 +350,9 @@ the value to set is also known) of ._find_fld_pkt() instead.
                 pass
             else:
                 if isinstance(pkt, tuple(self.dflt.owners)):
+                    if not pkt.default_fields:
+                        # Packet not initialized
+                        return self.dflt
                     return self._find_fld_pkt(pkt)
             frame = frame.f_back
         return self.dflt
@@ -389,7 +405,7 @@ class PadField(object):
     def __init__(self, fld, align, padwith=None):
         self._fld = fld
         self._align = align
-        self._padwith = padwith or b""
+        self._padwith = padwith or b"\x00"
 
     def padlen(self, flen):
         return -flen % self._align
@@ -413,7 +429,7 @@ class ReversePadField(PadField):
 
     def getfield(self, pkt, s):
         # We need to get the length that has already been dissected
-        padlen = self.padlen(pkt._tmp_dissect_pos)
+        padlen = self.padlen(len(pkt.original) - len(s))
         remain, val = self._fld.getfield(pkt, s[padlen:])
         return remain, val
 
@@ -485,7 +501,12 @@ class MACField(Field):
     def i2m(self, pkt, x):
         if x is None:
             return b"\0\0\0\0\0\0"
-        return mac2str(x)
+        try:
+            x = mac2str(x)
+        except (struct.error, OverflowError):
+            x = bytes_encode(x)
+
+        return x
 
     def m2i(self, pkt, x):
         return str2mac(x)
@@ -738,30 +759,37 @@ class FieldAttributeException(Scapy_Exception):
 
 class YesNoByteField(ByteField):
     """
-    byte based flag field that shows representation of its number based on a given association  # noqa: E501
+    A byte based flag field that shows representation of its number
+    based on a given association
 
-    in its default configuration the following representation is generated:
+    In its default configuration the following representation is generated:
         x == 0 : 'no'
         x != 0 : 'yes'
 
-    in more sophisticated use-cases (e.g. yes/no/invalid) one can use the config attribute to configure  # noqa: E501
-    key-value, key-range and key-value-set associations that will be used to generate the values representation.  # noqa: E501
+    In more sophisticated use-cases (e.g. yes/no/invalid) one can use the
+    config attribute to configure.
+    Key-value, key-range and key-value-set associations that will be used to
+    generate the values representation.
 
-    a range is given by a tuple (<first-val>, <last-value>) including the last value. a single-value tuple  # noqa: E501
-    is treated as scalar.
+    - A range is given by a tuple (<first-val>, <last-value>) including the
+      last value.
+    - A single-value tuple is treated as scalar.
+    - A list defines a set of (probably non consecutive) values that should be
+      associated to a given key.
 
-    a list defines a set of (probably non consecutive) values that should be associated to a given key.  # noqa: E501
+    All values not associated with a key will be shown as number of type
+    unsigned byte.
 
-    all values not associated with a key will be shown as number of type unsigned byte.  # noqa: E501
+    **For instance**::
 
-    config = {
-                'no' : 0,
-                'foo' : (1,22),
-                'yes' : 23,
-                'bar' : [24,25, 42, 48, 87, 253]
-             }
+        config = {
+            'no' : 0,
+            'foo' : (1,22),
+            'yes' : 23,
+            'bar' : [24,25, 42, 48, 87, 253]
+        }
 
-    generates the following representations:
+    Generates the following representations::
 
         x == 0 : 'no'
         x == 15: 'foo'
@@ -769,14 +797,15 @@ class YesNoByteField(ByteField):
         x == 42: 'bar'
         x == 43: 43
 
-    using the config attribute one could also revert the stock-yes-no-behavior:
+    Another example, using the config attribute one could also revert
+    the stock-yes-no-behavior::
 
-    config = {
+        config = {
                 'yes' : 0,
                 'no' : (1,255)
-             }
+        }
 
-    will generate the following value representation:
+    Will generate the following value representation::
 
         x == 0 : 'yes'
         x != 0 : 'no'
@@ -854,6 +883,11 @@ class LEShortField(Field):
         Field.__init__(self, name, default, "<H")
 
 
+class LESignedShortField(Field):
+    def __init__(self, name, default):
+        Field.__init__(self, name, default, "<h")
+
+
 class XShortField(ShortField):
     def i2repr(self, pkt, x):
         return lhex(self.i2h(pkt, x))
@@ -899,9 +933,19 @@ class LongField(Field):
         Field.__init__(self, name, default, "Q")
 
 
+class SignedLongField(Field):
+    def __init__(self, name, default):
+        Field.__init__(self, name, default, "q")
+
+
 class LELongField(LongField):
     def __init__(self, name, default):
         Field.__init__(self, name, default, "<Q")
+
+
+class LESignedLongField(Field):
+    def __init__(self, name, default):
+        Field.__init__(self, name, default, "<q")
 
 
 class XLongField(LongField):
@@ -1014,68 +1058,113 @@ class PacketLenField(PacketField):
 
 
 class PacketListField(PacketField):
-    """ PacketListField represents a series of Packet instances that might occur right in the middle of another Packet  # noqa: E501
-    field list.
-    This field type may also be used to indicate that a series of Packet instances have a sibling semantic instead of  # noqa: E501
-    a parent/child relationship (i.e. a stack of layers).
+    """PacketListField represents a series of Packet instances that might
+    occur right in the middle of another Packet field list.
+    This field type may also be used to indicate that a series of Packet
+    instances have a sibling semantic instead of a parent/child relationship
+    (i.e. a stack of layers).
     """
     __slots__ = ["count_from", "length_from", "next_cls_cb"]
     islist = 1
 
     def __init__(self, name, default, cls=None, count_from=None, length_from=None, next_cls_cb=None):  # noqa: E501
-        """ The number of Packet instances that are dissected by this field can be parametrized using one of three  # noqa: E501
-        different mechanisms/parameters:
-            * count_from: a callback that returns the number of Packet instances to dissect. The callback prototype is:  # noqa: E501
-            count_from(pkt:Packet) -> int
-            * length_from: a callback that returns the number of bytes that must be dissected by this field. The  # noqa: E501
-            callback prototype is:
-            length_from(pkt:Packet) -> int
-            * next_cls_cb: a callback that enables a Scapy developer to dynamically discover if another Packet instance  # noqa: E501
-            should be dissected or not. See below for this callback prototype.
+        """
+        The number of Packet instances that are dissected by this field can
+        be parametrized using one of three different mechanisms/parameters:
 
-        The bytes that are not consumed during the dissection of this field are passed to the next field of the current  # noqa: E501
-        packet.
+            * count_from: a callback that returns the number of Packet
+              instances to dissect. The callback prototype is::
 
-        For the serialization of such a field, the list of Packets that are contained in a PacketListField can be  # noqa: E501
-        heterogeneous and is unrestricted.
+                count_from(pkt:Packet) -> int
 
-        The type of the Packet instances that are dissected with this field is specified or discovered using one of the  # noqa: E501
-        following mechanism:
-            * the cls parameter may contain a callable that returns an instance of the dissected Packet. This  # noqa: E501
-                may either be a reference of a Packet subclass (e.g. DNSRROPT in layers/dns.py) to generate an  # noqa: E501
-                homogeneous PacketListField or a function deciding the type of the Packet instance  # noqa: E501
-                (e.g. _CDPGuessAddrRecord in contrib/cdp.py)
-            * the cls parameter may contain a class object with a defined "dispatch_hook" classmethod. That  # noqa: E501
-                method must return a Packet instance. The dispatch_hook callmethod must implement the following prototype:  # noqa: E501
-                dispatch_hook(cls, _pkt:Optional[Packet], *args, **kargs) -> Packet_metaclass  # noqa: E501
-                The _pkt parameter may contain a reference to the packet instance containing the PacketListField that is  # noqa: E501
-                being dissected.
-            * the next_cls_cb parameter may contain a callable whose prototype is:  # noqa: E501
-                cbk(pkt:Packet, lst:List[Packet], cur:Optional[Packet], remain:str) -> Optional[Packet_metaclass]  # noqa: E501
-                The pkt argument contains a reference to the Packet instance containing the PacketListField that is  # noqa: E501
-                being dissected. The lst argument is the list of all Packet instances that were previously parsed during  # noqa: E501
-                the current PacketListField dissection, save for the very last Packet instance. The cur argument  # noqa: E501
-                contains a reference to that very last parsed Packet instance. The remain argument contains the bytes  # noqa: E501
-                that may still be consumed by the current PacketListField dissection operation. This callback returns  # noqa: E501
-                either the type of the next Packet to dissect or None to indicate that no more Packet are to be  # noqa: E501
+            * length_from: a callback that returns the number of bytes that
+              must be dissected by this field. The callback prototype is::
+
+                length_from(pkt:Packet) -> int
+
+            * next_cls_cb: a callback that enables a Scapy developer to
+              dynamically discover if another Packet instance should be
+              dissected or not. See below for this callback prototype.
+
+        The bytes that are not consumed during the dissection of this field
+        are passed to the next field of the current packet.
+
+        For the serialization of such a field, the list of Packets that are
+        contained in a PacketListField can be heterogeneous and is
+        unrestricted.
+
+        The type of the Packet instances that are dissected with this field is
+        specified or discovered using one of the following mechanism:
+
+            * the cls parameter may contain a callable that returns an
+              instance of the dissected Packet. This may either be a
+              reference of a Packet subclass (e.g. DNSRROPT in layers/dns.py)
+              to generate an homogeneous PacketListField or a function
+              deciding the type of the Packet instance
+              (e.g. _CDPGuessAddrRecord in contrib/cdp.py)
+
+            * the cls parameter may contain a class object with a defined
+              ``dispatch_hook`` classmethod. That method must return a Packet
+              instance. The ``dispatch_hook`` callmethod must implement the
+                following prototype::
+
+                dispatch_hook(cls,
+                              _pkt:Optional[Packet],
+                              *args, **kargs
+                ) -> Packet_metaclass
+
+                The _pkt parameter may contain a reference to the packet
+                instance containing the PacketListField that is being
                 dissected.
-                These four arguments allows a variety of dynamic discovery of the number of Packet to dissect and of the  # noqa: E501
-                type of each one of these Packets, including: type determination based on current Packet instances or  # noqa: E501
-                its underlayers, continuation based on the previously parsed Packet instances within that  # noqa: E501
-                PacketListField, continuation based on a look-ahead on the bytes to be dissected...  # noqa: E501
 
-        The cls and next_cls_cb parameters are semantically exclusive, although one could specify both. If both are  # noqa: E501
-        specified, cls is silently ignored. The same is true for count_from and next_cls_cb.  # noqa: E501
-        length_from and next_cls_cb are compatible and the dissection will end, whichever of the two stop conditions  # noqa: E501
-        comes first.
+            * the ``next_cls_cb`` parameter may contain a callable whose
+              prototype is::
 
-        @param name: the name of the field
-        @param default: the default value of this field; generally an empty Python list  # noqa: E501
-        @param cls: either a callable returning a Packet instance or a class object defining a dispatch_hook class  # noqa: E501
-            method
-        @param count_from: a callback returning the number of Packet instances to dissect  # noqa: E501
-        @param length_from: a callback returning the number of bytes to dissect
-        @param next_cls_cb: a callback returning either None or the type of the next Packet to dissect.  # noqa: E501
+                cbk(pkt:Packet,
+                    lst:List[Packet],
+                    cur:Optional[Packet],
+                    remain:str
+                ) -> Optional[Packet_metaclass]
+
+              The pkt argument contains a reference to the Packet instance
+              containing the PacketListField that is being dissected.
+              The lst argument is the list of all Packet instances that were
+              previously parsed during the current ``PacketListField``
+              dissection, saved for the very last Packet instance.
+              The cur argument contains a reference to that very last parsed
+              ``Packet`` instance. The remain argument contains the bytes
+              that may still be consumed by the current PacketListField
+              dissection operation.
+
+              This callback returns either the type of the next Packet to
+              dissect or None to indicate that no more Packet are to be
+              dissected.
+
+              These four arguments allows a variety of dynamic discovery of
+              the number of Packet to dissect and of the type of each one of
+              these Packets, including: type determination based on current
+              Packet instances or its underlayers, continuation based on the
+              previously parsed Packet instances within that PacketListField,
+              continuation based on a look-ahead on the bytes to be
+              dissected...
+
+        The cls and next_cls_cb parameters are semantically exclusive,
+        although one could specify both. If both are specified, cls is
+        silently ignored. The same is true for count_from and next_cls_cb.
+
+        length_from and next_cls_cb are compatible and the dissection will
+        end, whichever of the two stop conditions comes first.
+
+        :param name: the name of the field
+        :param default: the default value of this field; generally an empty
+            Python list
+        @param cls: either a callable returning a Packet instance or a class
+            object defining a ``dispatch_hook`` class method
+        :param count_from: a callback returning the number of Packet
+            instances to dissect.
+        :param length_from: a callback returning the number of bytes to dissect
+        :param next_cls_cb: a callback returning either None or the type of
+            the next Packet to dissect.
         """
         if default is None:
             default = []  # Create a new list for each instance
@@ -1142,6 +1231,7 @@ class PacketListField(PacketField):
                     if self.next_cls_cb is not None:
                         cls = self.next_cls_cb(pkt, lst, p, remain)
                         if cls is not None:
+                            c = 0 if c is None else c
                             c += 1
                 else:
                     remain = b""
@@ -1172,6 +1262,8 @@ class StrFixedLenField(StrField):
 
     def addfield(self, pkt, s, val):
         len_pkt = self.length_from(pkt)
+        if len_pkt is None:
+            return s + self.i2m(pkt, val)
         return s + struct.pack("%is" % len_pkt, self.i2m(pkt, val))
 
     def randval(self):
@@ -1442,6 +1534,7 @@ class BitField(Field):
         Field.__init__(self, name, default)
         self.rev = size < 0
         self.size = abs(size)
+        self.sz = self.size / 8.
 
     def reverse(self, val):
         if self.size == 16:
@@ -1647,6 +1740,7 @@ class BitEnumField(BitField, _EnumField):
         _EnumField.__init__(self, name, default, enum)
         self.rev = size < 0
         self.size = abs(size)
+        self.sz = self.size / 8.
 
     def any2i(self, pkt, x):
         return _EnumField.any2i(self, pkt, x)
@@ -1741,6 +1835,8 @@ class _MultiEnumField(_EnumField):
 
     def i2repr_one(self, pkt, x):
         v = self.depends_on(pkt)
+        if isinstance(v, VolatileValue):
+            return repr(v)
         if v in self.i2s_multi:
             return self.i2s_multi[v].get(x, x)
         return x
@@ -1757,6 +1853,7 @@ class BitMultiEnumField(BitField, _MultiEnumField):
         _MultiEnumField.__init__(self, name, default, enum, depends_on)
         self.rev = size < 0
         self.size = abs(size)
+        self.sz = self.size / 8.
 
     def any2i(self, pkt, x):
         return _MultiEnumField.any2i(self, pkt, x)
@@ -2302,7 +2399,7 @@ class ScalingField(Field):
         return x
 
     def any2i(self, pkt, x):
-        if isinstance(x, str) or isinstance(x, bytes):
+        if isinstance(x, (str, bytes)):
             x = struct.unpack(self.fmt, bytes_encode(x))[0]
             x = self.m2i(pkt, x)
         return x
@@ -2327,7 +2424,7 @@ class UUIDField(Field):
     The internal storage format of this field is ``uuid.UUID`` from the Python
     standard library.
 
-    There are three formats (``uuid_fmt``) for this field type::
+    There are three formats (``uuid_fmt``) for this field type:
 
     * ``FORMAT_BE`` (default): the UUID is six fields in big-endian byte order,
       per RFC 4122.
@@ -2335,20 +2432,20 @@ class UUIDField(Field):
       This format is used by DHCPv6 (RFC 6355) and most network protocols.
 
     * ``FORMAT_LE``: the UUID is six fields, with ``time_low``, ``time_mid``
-      and ``time_high_version`` in little-endian byte order. This _doesn't_
+      and ``time_high_version`` in little-endian byte order. This *doesn't*
       change the arrangement of the fields from RFC 4122.
 
       This format is used by Microsoft's COM/OLE libraries.
 
     * ``FORMAT_REV``: the UUID is a single 128-bit integer in little-endian
-      byte order. This _changes the arrangement_ of the fields.
+      byte order. This *changes the arrangement* of the fields.
 
       This format is used by Bluetooth Low Energy.
 
     Note: You should use the constants here.
 
     The "human encoding" of this field supports a number of different input
-    formats, and wraps Python's ``uuid.UUID`` library appropriately::
+    formats, and wraps Python's ``uuid.UUID`` library appropriately:
 
     * Given a bytearray, bytes or str of 16 bytes, this class decodes UUIDs in
       wire format.
@@ -2450,14 +2547,14 @@ class UUIDField(Field):
 class BitExtendedField(Field):
     """
     Bit Extended Field
-    ------------------
 
     This type of field has a variable number of bytes. Each byte is defined
     as follows:
     - 7 bits of data
-    - 1 bit an an extension bit
-        * 0 means it is last byte of the field ("stopping bit")
-        * 1 means there is another byte after this one ("forwarding bit")
+    - 1 bit an an extension bit:
+
+      + 0 means it is last byte of the field ("stopping bit")
+      + 1 means there is another byte after this one ("forwarding bit")
 
     To get the actual data, it is necessary to hop the binary data byte per
     byte and to check the extension bit until 0

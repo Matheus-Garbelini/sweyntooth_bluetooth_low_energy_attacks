@@ -25,6 +25,10 @@ class ScapyInvalidPlatformException(Scapy_Exception):
     pass
 
 
+class ScapyNoDstMacException(Scapy_Exception):
+    pass
+
+
 class ScapyFreqFilter(logging.Filter):
     def __init__(self):
         logging.Filter.__init__(self)
@@ -85,6 +89,7 @@ log_runtime = logging.getLogger("scapy.runtime")
 log_runtime.addFilter(ScapyFreqFilter())
 # logs in interactive functions
 log_interactive = logging.getLogger("scapy.interactive")
+log_interactive.setLevel(logging.DEBUG)
 # logs when loading Scapy
 log_loading = logging.getLogger("scapy.loading")
 

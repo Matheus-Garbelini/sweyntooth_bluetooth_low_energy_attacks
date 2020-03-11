@@ -24,7 +24,7 @@ def str2mac(s):
 
 
 if not WINDOWS:
-    if not conf.use_pcap and not conf.use_dnet:
+    if not conf.use_pcap:
         from scapy.arch.bpf.core import get_if_raw_addr
 
 
@@ -56,9 +56,9 @@ if LINUX:
     from scapy.arch.linux import *  # noqa F403
 elif BSD:
     from scapy.arch.unix import read_routes, read_routes6, in6_getifaddr  # noqa: F401, E501
-
-    if not conf.use_pcap or conf.use_dnet:
-        from scapy.arch.bpf.core import *  # noqa F403
+    from scapy.arch.bpf.core import *  # noqa F403
+    if not conf.use_pcap:
+        # Native
         from scapy.arch.bpf.supersocket import * # noqa F403
         conf.use_bpf = True
 elif SOLARIS:

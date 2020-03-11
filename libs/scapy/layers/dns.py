@@ -127,7 +127,7 @@ def dns_encode(x, check_built=False):
 
 def DNSgetstr(*args, **kwargs):
     """Legacy function. Deprecated"""
-    raise DeprecationWarning("DNSgetstr deprecated. Use dns_get_str instead")
+    warning("DNSgetstr deprecated. Use dns_get_str instead")
     return dns_get_str(*args, **kwargs)
 
 
@@ -151,7 +151,7 @@ def dns_compress(pkt):
                     for field in current.fields_desc:
                         if isinstance(field, DNSStrField) or \
                            (isinstance(field, MultipleTypeField) and
-                           current.type in [2, 5, 12]):
+                           current.type in [2, 3, 4, 5, 12, 15]):
                             # Get the associated data and store it accordingly  # noqa: E501
                             dat = current.getfieldval(field.name)
                             yield current, field.name, dat
@@ -417,7 +417,6 @@ class DNS(Packet):
                 other.qr == 0)
 
     def mysummary(self):
-        type = ["Qry", "Ans"][self.qr]
         name = ""
         if self.qr:
             type = "Ans"
@@ -437,6 +436,28 @@ class DNS(Packet):
     def compress(self):
         """Return the compressed DNS packet (using `dns_compress()`"""
         return dns_compress(self)
+
+    def pre_dissect(self, s):
+        """
+        Check that a valid DNS over TCP message can be decoded
+        """
+        if isinstance(self.underlayer, TCP):
+
+            # Compute the length of the DNS packet
+            if len(s) >= 2:
+                dns_len = struct.unpack("!H", s[:2])[0]
+            else:
+                message = "Malformed DNS message: too small!"
+                warning(message)
+                raise Scapy_Exception(message)
+
+            # Check if the length is valid
+            if dns_len < 14 or len(s) < dns_len:
+                message = "Malformed DNS message: invalid length!"
+                warning(message)
+                raise Scapy_Exception(message)
+
+        return s
 
 
 # https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
@@ -629,6 +650,18 @@ class _DNSRRdummy(InheritOriginDNSStrPacket):
         pkt = struct.pack("!H", tmp_len) + pkt[lrrname + 8 + 2:]
 
         return tmp_pkt + pkt + pay
+
+
+class DNSRRMX(_DNSRRdummy):
+    name = "DNS MX Resource Record"
+    fields_desc = [DNSStrField("rrname", ""),
+                   ShortEnumField("type", 6, dnstypes),
+                   ShortEnumField("rclass", 1, dnsclasses),
+                   IntField("ttl", 0),
+                   ShortField("rdlen", None),
+                   ShortField("preference", 0),
+                   DNSStrField("exchange", ""),
+                   ]
 
 
 class DNSRRSOA(_DNSRRdummy):
@@ -832,6 +865,8 @@ class DNSRRTSIG(_DNSRRdummy):
 
 
 DNSRR_DISPATCHER = {
+    6: DNSRRSOA,         # RFC 1035
+    15: DNSRRMX,         # RFC 1035
     33: DNSRRSRV,        # RFC 2782
     41: DNSRROPT,        # RFC 1671
     43: DNSRRDS,         # RFC 4034

@@ -17,7 +17,7 @@ import socket
 import sys
 
 from scapy import VERSION, base_classes
-from scapy.consts import DARWIN, WINDOWS, LINUX, BSD
+from scapy.consts import DARWIN, WINDOWS, LINUX, BSD, SOLARIS
 from scapy.error import log_scapy, warning, ScapyInvalidPlatformException
 from scapy.modules import six
 from scapy.themes import NoTheme, apply_ipython_style
@@ -89,9 +89,10 @@ ReadOnlyAttribute.__doc__ = "Read-only class attribute"
 
 
 class ProgPath(ConfClass):
-    pdfreader = "open" if DARWIN else "xdg-open"
-    psreader = "open" if DARWIN else "xdg-open"
-    svgreader = "open" if DARWIN else "xdg-open"
+    universal_open = "open" if DARWIN else "xdg-open"
+    pdfreader = universal_open
+    psreader = universal_open
+    svgreader = universal_open
     dot = "dot"
     display = "display"
     tcpdump = "tcpdump"
@@ -386,17 +387,6 @@ def isCryptographyValid():
     return _version_checker(cryptography, (1, 7))
 
 
-def isCryptographyRecent():
-    """
-    Check if the cryptography library is recent (2.0 and later)
-    """
-    try:
-        import cryptography
-    except ImportError:
-        return False
-    return _version_checker(cryptography, (2, 0))
-
-
 def isCryptographyAdvanced():
     """
     Check if the cryptography library is present, and if it supports X25519,
@@ -440,8 +430,13 @@ def _set_conf_sockets():
     if conf.use_bpf and not BSD:
         Interceptor.set_from_hook(conf, "use_bpf", False)
         raise ScapyInvalidPlatformException("BSD-like (OSX, *BSD...) only !")
+    if not conf.use_pcap and SOLARIS:
+        Interceptor.set_from_hook(conf, "use_pcap", True)
+        raise ScapyInvalidPlatformException(
+            "Scapy only supports libpcap on Solaris !"
+        )
     # we are already in an Interceptor hook, use Interceptor.set_from_hook
-    if conf.use_pcap or conf.use_dnet:
+    if conf.use_pcap:
         try:
             from scapy.arch.pcapdnet import L2pcapListenSocket, L2pcapSocket, \
                 L3pcapSocket
@@ -517,38 +512,55 @@ def _loglevel_changer(attr, val):
 
 
 class Conf(ConfClass):
-    """This object contains the configuration of Scapy.
-session  : filename where the session will be saved
-interactive_shell : can be "ipython", "python" or "auto". Default: Auto
-stealth  : if 1, prevents any unwanted packet to go out (ARP, DNS, ...)
-checkIPID: if 0, doesn't check that IPID matches between IP sent and ICMP IP citation received  # noqa: E501
-           if 1, checks that they either are equal or byte swapped equals (bug in some IP stacks)  # noqa: E501
-           if 2, strictly checks that they are equals
-checkIPsrc: if 1, checks IP src in IP and ICMP IP citation match (bug in some NAT stacks)  # noqa: E501
-checkIPinIP: if True, checks that IP-in-IP layers match. If False, do not
-             check IP layers that encapsulates another IP layer
-check_TCPerror_seqack: if 1, also check that TCP seq and ack match the ones in ICMP citation  # noqa: E501
-iff      : selects the default output interface for srp() and sendp(). default:"eth0")  # noqa: E501
-verb     : level of verbosity, from 0 (almost mute) to 3 (verbose)
-promisc  : default mode for listening socket (to get answers if you spoof on a lan)  # noqa: E501
-sniff_promisc : default mode for sniff()
-filter   : bpf filter added to every sniffing socket to exclude traffic from analysis  # noqa: E501
-histfile : history file
-padding  : includes padding in disassembled packets
-except_filter : BPF filter for packets to ignore
-debug_match : when 1, store received packet that are not matched into debug.recv  # noqa: E501
-route    : holds the Scapy routing table and provides methods to manipulate it
-warning_threshold : how much time between warnings from the same place
-ASN1_default_codec: Codec used by default for ASN1 objects
-mib      : holds MIB direct access dictionary
-resolve  : holds list of fields for which resolution should be done
-noenum   : holds list of enum fields for which conversion to string should NOT be done  # noqa: E501
-AS_resolver: choose the AS resolver class to use
-extensions_paths: path or list of paths where extensions are to be looked for
-contribs : a dict which can be used by contrib layers to store local configuration  # noqa: E501
-debug_tls:When 1, print some TLS session secrets when they are computed.
-recv_poll_rate: how often to check for new packets. Defaults to 0.05s.
-"""
+    """
+    This object contains the configuration of Scapy.
+
+    Attributes:
+        session: filename where the session will be saved
+        interactive_shell : can be "ipython", "python" or "auto". Default: Auto
+        stealth: if 1, prevents any unwanted packet to go out (ARP, DNS, ...)
+        checkIPID: if 0, doesn't check that IPID matches between IP sent and
+            ICMP IP citation received
+            if 1, checks that they either are equal or byte swapped
+            equals (bug in some IP stacks)
+            if 2, strictly checks that they are equals
+        checkIPsrc: if 1, checks IP src in IP and ICMP IP citation match
+            (bug in some NAT stacks)
+        checkIPinIP: if True, checks that IP-in-IP layers match. If False, do
+            not check IP layers that encapsulates another IP layer
+        check_TCPerror_seqack: if 1, also check that TCP seq and ack match the
+            ones in ICMP citation
+        iff: selects the default output interface for srp() and sendp().
+        verb: level of verbosity, from 0 (almost mute) to 3 (verbose)
+        promisc: default mode for listening socket (to get answers if you
+            spoof on a lan)
+        sniff_promisc: default mode for sniff()
+        filter: bpf filter added to every sniffing socket to exclude traffic
+            from analysis
+        histfile: history file
+        padding: includes padding in disassembled packets
+        except_filter : BPF filter for packets to ignore
+        debug_match: when 1, store received packet that are not matched into
+            `debug.recv`
+        route: holds the Scapy routing table and provides methods to
+            manipulate it
+        warning_threshold : how much time between warnings from the same place
+        ASN1_default_codec: Codec used by default for ASN1 objects
+        mib: holds MIB direct access dictionary
+        resolve: holds list of fields for which resolution should be done
+        noenum: holds list of enum fields for which conversion to string
+            should NOT be done
+        AS_resolver: choose the AS resolver class to use
+        extensions_paths: path or list of paths where extensions are to be
+                           looked for
+        contribs: a dict which can be used by contrib layers to store local
+            configuration
+        debug_tls: When 1, print some TLS session secrets
+            when they are computed.
+        recv_poll_rate: how often to check for new packets. Defaults to 0.05s.
+        raise_no_dst_mac: When True, raise exception if no dst MAC found
+            otherwise broadcast. Default is False.
+    """
     version = ReadOnlyAttribute("version", VERSION)
     session = ""
     interactive = False
@@ -581,6 +593,7 @@ recv_poll_rate: how often to check for new packets. Defaults to 0.05s.
     BTsocket = None
     USBsocket = None
     min_pkt_size = 60
+    bufsize = 2**16
     histfile = os.getenv('SCAPY_HISTFILE',
                          os.path.join(os.path.expanduser("~"),
                                       ".scapy_history"))
@@ -606,8 +619,6 @@ recv_poll_rate: how often to check for new packets. Defaults to 0.05s.
         os.getenv("SCAPY_USE_PCAPDNET", "").lower().startswith("y"),
         _socket_changer
     )
-    # XXX use_dnet is deprecated
-    use_dnet = os.getenv("SCAPY_USE_PCAPDNET", "").lower().startswith("y")
     use_bpf = Interceptor("use_bpf", False, _socket_changer)
     use_npcap = False
     ipv6_enabled = socket.has_ipv6
@@ -617,6 +628,7 @@ recv_poll_rate: how often to check for new packets. Defaults to 0.05s.
     temp_files = []
     netcache = NetCache()
     geoip_city = None
+    # can, tls, http are not loaded by default
     load_layers = ['bluetooth', 'bluetooth4LE', 'dhcp', 'dhcp6', 'dns',
                    'dot11', 'dot15d4', 'eap', 'gprs', 'hsrp', 'inet',
                    'inet6', 'ipsec', 'ir', 'isakmp', 'l2', 'l2tp',
@@ -626,11 +638,11 @@ recv_poll_rate: how often to check for new packets. Defaults to 0.05s.
                    'tftp', 'vrrp', 'vxlan', 'x509', 'zigbee']
     contribs = dict()
     crypto_valid = isCryptographyValid()
-    crypto_valid_recent = isCryptographyRecent()
-    crypto_valid_advanced = crypto_valid_recent and isCryptographyAdvanced()
+    crypto_valid_advanced = isCryptographyAdvanced()
     fancy_prompt = True
     auto_crop_tables = True
     recv_poll_rate = 0.05
+    raise_no_dst_mac = False
 
     def __getattr__(self, attr):
         # Those are loaded on runtime to avoid import loops

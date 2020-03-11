@@ -127,11 +127,19 @@ class Net(Gen):
         return "Net(%r)" % self.repr
 
     def __eq__(self, other):
+        if not other:
+            return False
         if hasattr(other, "parsed"):
             p2 = other.parsed
         else:
             p2, nm2 = self._parse_net(other)
         return self.parsed == p2
+
+    def __ne__(self, other):
+        # Python 2.7 compat
+        return not self == other
+
+    __hash__ = None
 
     def __contains__(self, other):
         if hasattr(other, "parsed"):
@@ -266,29 +274,6 @@ class Field_metaclass(type):
         return newcls
 
 
-class NewDefaultValues(Packet_metaclass):
-    """NewDefaultValues is deprecated (not needed anymore)
-
-    remove this:
-        __metaclass__ = NewDefaultValues
-    and it should still work.
-    """
-    def __new__(cls, name, bases, dct):
-        from scapy.error import log_loading
-        import traceback
-        try:
-            for tb in traceback.extract_stack() + [("??", -1, None, "")]:
-                f, l, _, line = tb
-                if line.startswith("class"):
-                    break
-        except Exception:
-            f, l = "??", -1  # noqa: E741
-            raise
-        log_loading.warning("Deprecated (no more needed) use of NewDefaultValues  (%s l. %i).", f, l)  # noqa: E501
-
-        return super(NewDefaultValues, cls).__new__(cls, name, bases, dct)
-
-
 class BasePacket(Gen):
     __slots__ = []
 
@@ -320,7 +305,7 @@ class _CanvasDumpExtended(object):
             if WINDOWS and conf.prog.psreader is None:
                 os.startfile(fname)
             else:
-                with ContextManagerSubprocess("psdump()", conf.prog.psreader):
+                with ContextManagerSubprocess(conf.prog.psreader):
                     subprocess.Popen([conf.prog.psreader, fname])
         else:
             canvas.writeEPSfile(filename)
@@ -344,8 +329,7 @@ class _CanvasDumpExtended(object):
             if WINDOWS and conf.prog.pdfreader is None:
                 os.startfile(fname)
             else:
-                with ContextManagerSubprocess("pdfdump()",
-                                              conf.prog.pdfreader):
+                with ContextManagerSubprocess(conf.prog.pdfreader):
                     subprocess.Popen([conf.prog.pdfreader, fname])
         else:
             canvas.writePDFfile(filename)
@@ -369,8 +353,7 @@ class _CanvasDumpExtended(object):
             if WINDOWS and conf.prog.svgreader is None:
                 os.startfile(fname)
             else:
-                with ContextManagerSubprocess("svgdump()",
-                                              conf.prog.svgreader):
+                with ContextManagerSubprocess(conf.prog.svgreader):
                     subprocess.Popen([conf.prog.svgreader, fname])
         else:
             canvas.writeSVGfile(filename)

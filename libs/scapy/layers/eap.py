@@ -307,28 +307,6 @@ class EAP_MD5(EAP):
     ]
 
 
-class EAP_PWD(EAP):
-    """
-    RFC 5931 - "Extensible Authentication Protocol (EAP)"
-    """
-
-    name = "EAP-pwd"
-    fields_desc = [
-        ByteEnumField("code", 1, eap_codes),
-        ByteField("id", 0),
-        FieldLenField("len", None, fmt="H", length_of="pwd_data",
-                      adjust=lambda pkt, x: len(pkt.value) + 2),
-        ByteEnumField("type", 52, eap_types),
-        BitField('L', 0, 1),
-        BitField('M', 0, 1),
-        BitField('pwd_type', 0, 5),
-        ConditionalField(IntField("message_len", 0), lambda pkt: pkt.L == 1),
-        # payload must be subtracted from header length (5)
-        XStrLenField("pwd_data", "", length_from=lambda \
-                     pkt: 0 if pkt.len is None else pkt.len - 5)
-    ]
-
-
 class EAP_TLS(EAP):
     """
     RFC 5216 - "The EAP-TLS Authentication Protocol"

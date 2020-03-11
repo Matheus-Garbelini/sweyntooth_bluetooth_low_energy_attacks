@@ -4,7 +4,7 @@
 # This program is published under a GPLv2 license
 
 """
-Packet sending and receiving with libdnet and libpcap/WinPcap.
+Packet sending and receiving libpcap/WinPcap.
 """
 
 import os
@@ -14,13 +14,12 @@ import struct
 import time
 
 from scapy.automaton import SelectableObject
-from scapy.arch.common import _select_nonblock, TimeoutElapsed
-from scapy.compat import raw, plain_str, chb
+from scapy.arch.common import _select_nonblock
+from scapy.compat import raw, plain_str
 from scapy.config import conf
 from scapy.consts import WINDOWS
-from scapy.data import MTU, ETH_P_ALL, ARPHDR_ETHER, ARPHDR_LOOPBACK
+from scapy.data import MTU, ETH_P_ALL
 from scapy.pton_ntop import inet_ntop
-from scapy.utils import mac2str
 from scapy.supersocket import SuperSocket
 from scapy.error import Scapy_Exception, log_loading, warning
 import scapy.consts
@@ -38,31 +37,33 @@ BIOCIMMEDIATE = -2147204496
 
 
 class _L2pcapdnetSocket(SuperSocket, SelectableObject):
-    read_allowed_exceptions = (TimeoutElapsed,)
+    nonblocking_socket = True
+
+    def __init__(self):
+        SelectableObject.__init__(self)
+        self.cls = None
 
     def check_recv(self):
         return True
 
     def recv_raw(self, x=MTU):
         """Receives a packet, then returns a tuple containing (cls, pkt_data, time)"""  # noqa: E501
-        ll = self.ins.datalink()
-        if ll in conf.l2types:
-            cls = conf.l2types[ll]
-        else:
-            cls = conf.default_l2
-            warning("Unable to guess datalink type (interface=%s linktype=%i). Using %s",  # noqa: E501
-                    self.iface, ll, cls.name)
+        if self.cls is None:
+            ll = self.ins.datalink()
+            if ll in conf.l2types:
+                self.cls = conf.l2types[ll]
+            else:
+                self.cls = conf.default_l2
+                warning(
+                    "Unable to guess datalink type "
+                    "(interface=%s linktype=%i). Using %s",
+                    self.iface, ll, self.cls.name
+                )
 
-        pkt = None
-        while pkt is None:
-            pkt = self.ins.next()
-            if pkt is not None:
-                ts, pkt = pkt
-            if pkt is None and scapy.consts.WINDOWS:
-                raise TimeoutElapsed  # To understand this behavior, have a look at L2pcapListenSocket's note  # noqa: E501
-            if pkt is None:
-                return None, None, None
-        return cls, pkt, ts
+        ts, pkt = self.ins.next()
+        if pkt is None:
+            return None, None, None
+        return self.cls, pkt, ts
 
     def nonblock_recv(self):
         """Receives and dissect a packet in non-blocking mode.
@@ -85,28 +86,29 @@ if conf.use_pcap:
     if WINDOWS:
         # Windows specific
         NPCAP_PATH = os.environ["WINDIR"] + "\\System32\\Npcap"
-        from scapy.modules.winpcapy import pcap_setmintocopy
+        from scapy.libs.winpcapy import pcap_setmintocopy
     else:
-        from scapy.modules.winpcapy import pcap_get_selectable_fd
+        from scapy.libs.winpcapy import pcap_get_selectable_fd
     from ctypes import POINTER, byref, create_string_buffer, c_ubyte, cast
 
     # Part of the Winpcapy integration was inspired by phaethon/scapy
     # but he destroyed the commit history, so there is no link to that
     try:
-        from scapy.modules.winpcapy import PCAP_ERRBUF_SIZE, pcap_if_t, \
+        from scapy.libs.winpcapy import PCAP_ERRBUF_SIZE, pcap_if_t, \
             sockaddr_in, sockaddr_in6, pcap_findalldevs, pcap_freealldevs, \
             pcap_lib_version, pcap_close, \
             pcap_open_live, pcap_pkthdr, \
             pcap_next_ex, pcap_datalink, \
             pcap_compile, pcap_setfilter, pcap_setnonblock, pcap_sendpacket, \
-            bpf_program as winpcapy_bpf_program
+            bpf_program
 
         def load_winpcapy():
-            """This functions calls Winpcap/Npcap pcap_findalldevs function,
-            and extracts and parse all the data scapy will need to use it:
-             - the Interface List
-            This data is stored in their respective conf.cache_* subfields:
-                conf.cache_iflist
+            """This functions calls libpcap ``pcap_findalldevs`` function,
+            and extracts and parse all the data scapy will need
+            to build the Interface List.
+
+            The date will be stored in ``conf.cache_iflist``, or accessible
+            with ``get_if_list()``
             """
             err = create_string_buffer(PCAP_ERRBUF_SIZE)
             devs = POINTER(pcap_if_t)()
@@ -184,17 +186,18 @@ if conf.use_pcap:
             load_winpcapy()
         return list(conf.cache_iflist)
 
-    class _PcapWrapper_winpcap:  # noqa: F811
-        """Wrapper for the WinPcap calls"""
+    class _PcapWrapper_libpcap:  # noqa: F811
+        """Wrapper for the libpcap calls"""
 
         def __init__(self, device, snaplen, promisc, to_ms, monitor=None):
             self.errbuf = create_string_buffer(PCAP_ERRBUF_SIZE)
             self.iface = create_string_buffer(device.encode("utf8"))
+            self.dtl = None
             if monitor:
                 if WINDOWS and not conf.use_npcap:
                     raise OSError("On Windows, this feature requires NPcap !")
                 # Npcap-only functions
-                from scapy.modules.winpcapy import pcap_create, \
+                from scapy.libs.winpcapy import pcap_create, \
                     pcap_set_snaplen, pcap_set_promisc, \
                     pcap_set_timeout, pcap_set_rfmon, pcap_activate
                 self.pcap = pcap_create(self.iface, self.errbuf)
@@ -209,6 +212,9 @@ if conf.use_pcap:
                 self.pcap = pcap_open_live(self.iface,
                                            snaplen, promisc, to_ms,
                                            self.errbuf)
+                error = bytes(bytearray(self.errbuf)).strip(b"\x00")
+                if error:
+                    raise OSError(error)
 
             if WINDOWS:
                 # Winpcap/Npcap exclusive: make every packet to be instantly
@@ -217,24 +223,35 @@ if conf.use_pcap:
 
             self.header = POINTER(pcap_pkthdr)()
             self.pkt_data = POINTER(c_ubyte)()
-            self.bpf_program = winpcapy_bpf_program()
+            self.bpf_program = bpf_program()
 
         def next(self):
-            c = pcap_next_ex(self.pcap, byref(self.header), byref(self.pkt_data))  # noqa: E501
+            """
+            Returns the next packet as the tuple
+            (timestamp, raw_packet)
+            """
+            c = pcap_next_ex(
+                self.pcap,
+                byref(self.header),
+                byref(self.pkt_data)
+            )
             if not c > 0:
-                return
-            ts = self.header.contents.ts.tv_sec + float(self.header.contents.ts.tv_usec) / 1000000  # noqa: E501
-            pkt = b"".join(chb(i) for i in self.pkt_data[:self.header.contents.len])  # noqa: E501
+                return None, None
+            ts = self.header.contents.ts.tv_sec + float(self.header.contents.ts.tv_usec) / 1e6  # noqa: E501
+            pkt = bytes(bytearray(self.pkt_data[:self.header.contents.len]))
             return ts, pkt
         __next__ = next
 
         def datalink(self):
-            return pcap_datalink(self.pcap)
+            """Wrapper around pcap_datalink"""
+            if self.dtl is None:
+                self.dtl = pcap_datalink(self.pcap)
+            return self.dtl
 
         def fileno(self):
             if WINDOWS:
                 log_loading.error("Cannot get selectable PCAP fd on Windows")
-                return 0
+                return -1
             else:
                 # This does not exist under Windows
                 return pcap_get_selectable_fd(self.pcap)
@@ -258,7 +275,7 @@ if conf.use_pcap:
 
         def close(self):
             pcap_close(self.pcap)
-    open_pcap = lambda *args, **kargs: _PcapWrapper_winpcap(*args, **kargs)
+    open_pcap = _PcapWrapper_libpcap
 
     # pcap sockets
 
@@ -266,6 +283,7 @@ if conf.use_pcap:
         desc = "read packets at layer 2 using libpcap"
 
         def __init__(self, iface=None, type=ETH_P_ALL, promisc=None, filter=None, monitor=None):  # noqa: E501
+            super(L2pcapListenSocket, self).__init__()
             self.type = type
             self.outs = None
             self.iface = iface
@@ -303,6 +321,7 @@ if conf.use_pcap:
 
         def __init__(self, iface=None, type=ETH_P_ALL, promisc=None, filter=None, nofilter=0,  # noqa: E501
                      monitor=None):
+            super(L2pcapSocket, self).__init__()
             if iface is None:
                 iface = conf.iface
             self.iface = iface
@@ -338,21 +357,21 @@ if conf.use_pcap:
 
         def send(self, x):
             sx = raw(x)
-            if hasattr(x, "sent_time"):
+            try:
                 x.sent_time = time.time()
-            return self.outs.send(sx)
+            except AttributeError:
+                pass
+            self.outs.send(sx)
 
     class L3pcapSocket(L2pcapSocket):
         desc = "read/write packets at layer 3 using only libpcap"
-        # def __init__(self, iface = None, type = ETH_P_ALL, filter=None, nofilter=0):  # noqa: E501
-        #    L2pcapSocket.__init__(self, iface, type, filter, nofilter)
 
         def recv(self, x=MTU):
             r = L2pcapSocket.recv(self, x)
             if r:
+                r.payload.time = r.time
                 return r.payload
-            else:
-                return
+            return r
 
         def send(self, x):
             # Makes send detects when it should add Loopback(), Dot11... instead of Ether()  # noqa: E501
@@ -363,98 +382,13 @@ if conf.use_pcap:
                 cls = conf.default_l2
                 warning("Unable to guess datalink type (interface=%s linktype=%i). Using %s", self.iface, ll, cls.name)  # noqa: E501
             sx = raw(cls() / x)
-            if hasattr(x, "sent_time"):
+            try:
                 x.sent_time = time.time()
-            return self.ins.send(sx)
+            except AttributeError:
+                pass
+            self.outs.send(sx)
 else:
     # No libpcap installed
     get_if_list = lambda: []
     if WINDOWS:
         NPCAP_PATH = ""
-
-##########
-#  DNET  #
-##########
-
-# DEPRECATED
-
-if conf.use_dnet:
-    warning("dnet usage with scapy is deprecated, and will be removed in a future version.")  # noqa: E501
-    try:
-        try:
-            # First try to import dnet
-            import dnet
-        except ImportError:
-            # Then, try to import dumbnet as dnet
-            import dumbnet as dnet
-    except ImportError as e:
-        if conf.interactive:
-            log_loading.error("Unable to import dnet module: %s", e)
-            conf.use_dnet = False
-
-            def get_if_raw_hwaddr(iff):
-                "dummy"
-                return (0, b"\0\0\0\0\0\0")
-
-            def get_if_raw_addr(iff):  # noqa: F811
-                "dummy"
-                return b"\0\0\0\0"
-
-            def get_if_list():
-                "dummy"
-                return {}
-        else:
-            raise
-    else:
-        def get_if_raw_hwaddr(iff):
-            """Return a tuple containing the link type and the raw hardware
-               address corresponding to the interface 'iff'"""
-
-            if iff == scapy.arch.LOOPBACK_NAME:
-                return (ARPHDR_LOOPBACK, b'\x00' * 6)
-
-            # Retrieve interface information
-            try:
-                tmp_intf = dnet.intf().get(iff)
-                link_addr = tmp_intf["link_addr"]
-            except Exception:
-                raise Scapy_Exception("Error in attempting to get hw address"
-                                      " for interface [%s]" % iff)
-
-            if hasattr(link_addr, "type"):
-                # Legacy dnet module
-                return link_addr.type, link_addr.data
-
-            else:
-                # dumbnet module
-                mac = mac2str(str(link_addr))
-
-                # Adjust the link type
-                if tmp_intf["type"] == 6:  # INTF_TYPE_ETH from dnet
-                    return (ARPHDR_ETHER, mac)
-
-                return (tmp_intf["type"], mac)
-
-        def get_if_raw_addr(ifname):  # noqa: F811
-            i = dnet.intf()
-            try:
-                return i.get(ifname)["addr"].data
-            except (OSError, KeyError):
-                warning("No MAC address found on %s !" % ifname)
-                return b"\0\0\0\0"
-
-        def get_if_list():
-            """Returns all dnet names"""
-            return [i.get("name", None) for i in dnet.intf()]
-
-        def get_working_if():
-            """Returns the first interface than can be used with dnet"""
-
-            if_iter = iter(dnet.intf())
-
-            try:
-                intf = next(if_iter)
-            except (StopIteration, RuntimeError):
-                return scapy.consts.LOOPBACK_NAME
-
-            return intf.get("name", scapy.consts.LOOPBACK_NAME)

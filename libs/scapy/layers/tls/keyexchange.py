@@ -49,11 +49,10 @@ _tls_hash_sig = {0x0000: "none+anon", 0x0001: "none+rsa",
                  0x0502: "sha384+dsa", 0x0503: "sha384+ecdsa",
                  0x0600: "sha512+anon", 0x0601: "sha512+rsa",
                  0x0602: "sha512+dsa", 0x0603: "sha512+ecdsa",
-                 0x0804: "sha256+rsapss",
-                 0x0805: "sha384+rsapss",
-                 0x0806: "sha512+rsapss",
-                 0x0807: "ed25519",
-                 0x0808: "ed448"}
+                 0x0804: "sha256+rsaepss", 0x0805: "sha384+rsaepss",
+                 0x0806: "sha512+rsaepss", 0x0807: "ed25519",
+                 0x0808: "ed448", 0x0809: "sha256+rsapss",
+                 0x080a: "sha384+rsapss", 0x080b: "sha512+rsapss"}
 
 
 def phantom_mode(pkt):
@@ -164,9 +163,13 @@ class _TLSSignature(_GenericTLSSessionInheritance):
     def __init__(self, *args, **kargs):
         super(_TLSSignature, self).__init__(*args, **kargs)
         if (self.tls_session and
-            self.tls_session.tls_version and
-                self.tls_session.tls_version < 0x0303):
-            self.sig_alg = None
+                self.tls_session.tls_version):
+            if self.tls_session.tls_version < 0x0303:
+                self.sig_alg = None
+            elif self.tls_session.tls_version == 0x0304:
+                # For TLS 1.3 signatures, set the signature
+                # algorithm to RSA-PSS
+                self.sig_alg = 0x0804
 
     def _update_sig(self, m, key):
         """
@@ -235,7 +238,7 @@ class _TLSSignatureField(PacketField):
         remain = b""
         if conf.padding_layer in i:
             r = i[conf.padding_layer]
-            del(r.underlayer.payload)
+            del r.underlayer.payload
             remain = r.load
         return remain, i
 
@@ -614,10 +617,14 @@ class ServerECDHNamedCurveParams(_GenericTLSSessionInheritance):
 
         curve_name = _tls_named_curves[self.named_curve]
         curve = ec._CURVE_TYPES[curve_name]()
-        import_point = ec.EllipticCurvePublicNumbers.from_encoded_point
-        pubnum = import_point(curve, self.point)
         s = self.tls_session
-        s.server_kx_pubkey = pubnum.public_key(default_backend())
+        try:  # cryptography >= 2.5
+            import_point = ec.EllipticCurvePublicKey.from_encoded_point
+            s.server_kx_pubkey = import_point(curve, self.point)
+        except AttributeError:
+            import_point = ec.EllipticCurvePublicNumbers.from_encoded_point
+            pubnum = import_point(curve, self.point)
+            s.server_kx_pubkey = pubnum.public_key(default_backend())
 
         if not s.client_kx_ecdh_params:
             s.client_kx_ecdh_params = curve
@@ -833,9 +840,14 @@ class ClientECDiffieHellmanPublic(_GenericTLSSessionInheritance):
 
         # if there are kx params and keys, we assume the crypto library is ok
         if s.client_kx_ecdh_params:
-            import_point = ec.EllipticCurvePublicNumbers.from_encoded_point
-            pub_num = import_point(s.client_kx_ecdh_params, self.ecdh_Yc)
-            s.client_kx_pubkey = pub_num.public_key(default_backend())
+            try:  # cryptography >= 2.5
+                import_point = ec.EllipticCurvePublicKey.from_encoded_point
+                s.client_kx_pubkey = import_point(s.client_kx_ecdh_params,
+                                                  self.ecdh_Yc)
+            except AttributeError:
+                import_point = ec.EllipticCurvePublicNumbers.from_encoded_point
+                pub_num = import_point(s.client_kx_ecdh_params, self.ecdh_Yc)
+                s.client_kx_pubkey = pub_num.public_key(default_backend())
 
         if s.server_kx_privkey and s.client_kx_pubkey:
             ZZ = s.server_kx_privkey.exchange(ec.ECDH(), s.client_kx_pubkey)
@@ -877,7 +889,10 @@ class EncryptedPreMasterSecret(_GenericTLSSessionInheritance):
     def pre_dissect(self, m):
         s = self.tls_session
         tbd = m
-        if s.tls_version >= 0x0301:
+        tls_version = s.tls_version
+        if tls_version is None:
+            tls_version = s.advertised_tls_version
+        if tls_version >= 0x0301:
             if len(m) < 2:      # Should not happen
                 return m
             tmp_len = struct.unpack("!H", m[:2])[0]
@@ -925,7 +940,10 @@ class EncryptedPreMasterSecret(_GenericTLSSessionInheritance):
             warning("No material to encrypt Pre Master Secret")
 
         tmp_len = b""
-        if s.tls_version >= 0x0301:
+        tls_version = s.tls_version
+        if tls_version is None:
+            tls_version = s.advertised_tls_version
+        if tls_version >= 0x0301:
             tmp_len = struct.pack("!H", len(enc))
         return tmp_len + enc + pay
 

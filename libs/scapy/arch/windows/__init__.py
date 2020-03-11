@@ -34,7 +34,6 @@ from scapy.compat import plain_str
 from scapy.supersocket import SuperSocket
 
 conf.use_pcap = True
-conf.use_dnet = False
 
 # These import must appear after setting conf.use_* variables
 from scapy.arch import pcapdnet  # noqa: E402
@@ -400,7 +399,7 @@ class NetworkInterface(object):
         _windows_title()  # Reset title of the window
         if code != 0:
             raise OSError(res.decode("utf8", errors="ignore"))
-        return (code == 0)
+        return True
 
     def _npcap_get(self, key):
         res, code = _exec_cmd(" ".join([_WlanHelper, self.guid[1:-1], key]))
@@ -620,9 +619,6 @@ class NetworkInterfaceDict(UserDict):
                         return True
                     elif _confir in ["no", "n"]:
                         return False
-                return False
-        _error_msg = ("No match between your pcap and windows "
-                      "network interfaces found. ")
         if _detect:
             # No action needed
             return
@@ -635,8 +631,7 @@ class NetworkInterfaceDict(UserDict):
                 if succeed:
                     log_loading.info("Pcap service started !")
                     return
-            _error_msg = "Could not start the pcap service ! "
-        warning(_error_msg +
+        warning("Could not start the pcap service ! "
                 "You probably won't be able to send packets. "
                 "Deactivating unneeded interfaces and restarting "
                 "Scapy might help. Check your winpcap/npcap installation "
@@ -800,7 +795,7 @@ if conf.use_pcap:
         if not isinstance(iface, NetworkInterface) and \
            iface_pcap_name is not None:
             iface = IFACES.dev_from_name(iface)
-        if iface.is_invalid():
+        if iface is None or iface.is_invalid():
             raise Scapy_Exception(
                 "Interface is invalid (no pcap match found) !"
             )
@@ -808,7 +803,7 @@ if conf.use_pcap:
         # Checking/setting for monitor mode will slow down the process, and the
         # common is case is not to use monitor mode
         kw_monitor = kargs.get("monitor", None)
-        if conf.use_npcap and kw_monitor is not None and iface is not None:
+        if conf.use_npcap and kw_monitor is not None:
             monitored = iface.ismonitor()
             if kw_monitor is not monitored:
                 # The monitor param is specified, and not matching the current

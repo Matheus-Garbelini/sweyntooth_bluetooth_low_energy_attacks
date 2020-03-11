@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 #############################################################################
 #                                                                           #
 #  inet6.py --- IPv6 support for Scapy                                      #
@@ -179,8 +178,8 @@ ipv6nhcls = {0: "IPv6ExtHdrHopByHop",
              17: "UDP",
              43: "IPv6ExtHdrRouting",
              44: "IPv6ExtHdrFragment",
-             # 50: "IPv6ExtHrESP",
-             # 51: "IPv6ExtHdrAH",
+             50: "ESP",
+             51: "AH",
              58: "ICMPv6Unknown",
              59: "Raw",
              60: "IPv6ExtHdrDestOpt"}
@@ -383,7 +382,7 @@ class IPv6(_IPv6GuessPayload, Packet, IPTools):
 
         if conf.checkIPsrc and conf.checkIPaddr and not in6_ismaddr(sd):
             sd = inet_pton(socket.AF_INET6, sd)
-            ss = inet_pton(socket.AF_INET6, self.src)
+            ss = inet_pton(socket.AF_INET6, ss)
             return strxor(sd, ss) + struct.pack("B", nh) + self.payload.hashret()  # noqa: E501
         else:
             return struct.pack("B", nh) + self.payload.hashret()
@@ -564,15 +563,10 @@ def in6_chksum(nh, u, p):
     """
     As Specified in RFC 2460 - 8.1 Upper-Layer Checksums
 
-    Performs IPv6 Upper Layer checksum computation. Provided parameters are:
-    - 'nh' : value of upper layer protocol
-    - 'u'  : upper layer instance (TCP, UDP, ICMPv6*, ). Instance must be
-             provided with all under layers (IPv6 and all extension headers,
-             for example)
-    - 'p'  : the payload of the upper layer provided as a string
+    Performs IPv6 Upper Layer checksum computation.
 
-    Functions operate by filling a pseudo header class instance (PseudoIPv6)
-    with
+    This function operates by filling a pseudo header class instance
+    (PseudoIPv6) with:
     - Next Header value
     - the address of _final_ destination (if some Routing Header with non
     segleft field is present in underlayer classes, last address is used.)
@@ -581,6 +575,12 @@ def in6_chksum(nh, u, p):
     in HAO option if some Destination Option header found in underlayer
     includes this option).
     - the length is the length of provided payload string ('p')
+
+    :param nh: value of upper layer protocol
+    :param u: upper layer instance (TCP, UDP, ICMPv6*, ). Instance must be
+        provided with all under layers (IPv6 and all extension headers,
+        for example)
+    :param p: the payload of the upper layer provided as a string
     """
 
     ph6 = PseudoIPv6()
@@ -1041,7 +1041,6 @@ def defragment6(packets):
     lst = [x for x in lst if x[IPv6ExtHdrFragment].id == id]
     if len(lst) != llen:
         warning("defragment6: some fragmented packets have been removed from list")  # noqa: E501
-    llen = len(lst)
 
     # reorder fragments
     res = []
@@ -1166,48 +1165,6 @@ def fragment6(pkt, fragSize):
             res.append(tempo)
             break
     return res
-
-
-#                               AH Header                                   #
-
-# class _AHFieldLenField(FieldLenField):
-#     def getfield(self, pkt, s):
-#         l = getattr(pkt, self.fld)
-#         l = (l*8)-self.shift
-#         i = self.m2i(pkt, s[:l])
-#         return s[l:],i
-
-# class _AHICVStrLenField(StrLenField):
-#     def i2len(self, pkt, x):
-
-
-# class IPv6ExtHdrAH(_IPv6ExtHdr):
-#     name = "IPv6 Extension Header - AH"
-#     fields_desc = [ ByteEnumField("nh", 59, ipv6nh),
-#                     _AHFieldLenField("len", None, "icv"),
-#                     ShortField("res", 0),
-#                     IntField("spi", 0),
-#                     IntField("sn", 0),
-#                     _AHICVStrLenField("icv", None, "len", shift=2) ]
-#     overload_fields = {IPv6: { "nh": 51 }}
-
-#     def post_build(self, pkt, pay):
-#         if self.len is None:
-#             pkt = pkt[0]+struct.pack("!B", 2*len(self.addresses))+pkt[2:]
-#         if self.segleft is None:
-#             pkt = pkt[:3]+struct.pack("!B", len(self.addresses))+pkt[4:]
-#         return _IPv6ExtHdr.post_build(self, pkt, pay)
-
-
-#                               ESP Header                                  #
-
-# class IPv6ExtHdrESP(_IPv6extHdr):
-#     name = "IPv6 Extension Header - ESP"
-#     fields_desc = [ IntField("spi", 0),
-#                     IntField("sn", 0),
-#                     # there is things to extract from IKE work
-#                     ]
-#     overloads_fields = {IPv6: { "nh": 50 }}
 
 
 #############################################################################

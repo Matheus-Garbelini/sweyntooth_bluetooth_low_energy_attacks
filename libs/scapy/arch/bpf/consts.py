@@ -1,12 +1,12 @@
 # Guillaume Valadon <guillaume@valadon.net>
 
 """
-Scapy *BSD native support - constants
+Scapy BSD native support - constants
 """
 
 from ctypes import sizeof
 
-from scapy.arch.common import bpf_program
+from scapy.libs.structures import bpf_program
 from scapy.data import MTU
 
 

@@ -35,7 +35,8 @@ from scapy.fields import ByteField, LEShortField, BitField, LEShortEnumField, \
     StrLenField, IntField, XByteField, LEIntField, StrFixedLenField, \
     LESignedIntField, ReversePadField, ConditionalField, PacketListField, \
     ShortField, BitEnumField, FieldLenField, LEFieldLenField, \
-    FieldListField, XStrFixedLenField, PacketField, FCSField
+    FieldListField, XStrFixedLenField, PacketField, FCSField, \
+    ScalingField
 from scapy.ansmachine import AnsweringMachine
 from scapy.plist import PacketList
 from scapy.layers.l2 import Ether, LLC, MACField
@@ -115,26 +116,19 @@ class PrismHeader(Packet):
 
 class _RadiotapReversePadField(ReversePadField):
     def __init__(self, fld):
-        self._fld = fld
-        self._padwith = b"\x00"
         # Quote from https://www.radiotap.org/:
         # ""Radiotap requires that all fields in the radiotap header are aligned to natural boundaries.  # noqa: E501
         # For radiotap, that means all 8-, 16-, 32-, and 64-bit fields must begin on 8-, 16-, 32-, and 64-bit boundaries, respectively.""  # noqa: E501
-        if isinstance(self._fld, BitField):
-            self._align = int(math.ceil(self.i2len(None, None)))
+        if isinstance(fld, BitField):
+            _align = int(math.ceil(fld.i2len(None, None)))
         else:
-            self._align = struct.calcsize(self._fld.fmt)
-
-
-class _dbmField(ByteField):
-    def i2m(self, pkt, x):
-        return super(ByteField, self).i2m(pkt, x + 256)
-
-    def m2i(self, pkt, x):
-        return super(ByteField, self).m2i(pkt, x) - 256
-
-    def i2repr(self, pkt, x):
-        return "%sdBm" % x
+            _align = struct.calcsize(fld.fmt)
+        ReversePadField.__init__(
+            self,
+            fld,
+            _align,
+            padwith=b"\x00"
+        )
 
 
 def _next_radiotap_extpm(pkt, lst, cur, s):
@@ -247,6 +241,11 @@ _rt_hemuother_per_user_known = {
 
 class RadioTap(Packet):
     name = "RadioTap dummy"
+    deprecated_fields = {
+        "Channel": ("ChannelFrequency", "2.4.3"),
+        "ChannelFlags2": ("ChannelPlusFlags", "2.4.3"),
+        "ChannelNumber": ("ChannelPlusNumber", "2.4.3"),
+    }
     fields_desc = [
         ByteField('version', 0),
         ByteField('pad', 0),
@@ -278,7 +277,7 @@ class RadioTap(Packet):
         # Channel
         ConditionalField(
             _RadiotapReversePadField(
-                LEShortField("Channel", 0)
+                LEShortField("ChannelFrequency", 0)
              ),
             lambda pkt: pkt.present and pkt.present.Channel),
         ConditionalField(
@@ -287,13 +286,17 @@ class RadioTap(Packet):
         # dBm_AntSignal
         ConditionalField(
             _RadiotapReversePadField(
-                _dbmField("dBm_AntSignal", -256)
+                ScalingField("dBm_AntSignal", 0,
+                             offset=-256, unit="dBm",
+                             fmt="B")
              ),
             lambda pkt: pkt.present and pkt.present.dBm_AntSignal),
         # dBm_AntNoise
         ConditionalField(
             _RadiotapReversePadField(
-                _dbmField("dBm_AntNoise", -256)
+                ScalingField("dBm_AntNoise", 0,
+                             offset=-256, unit="dBm",
+                             fmt="B")
              ),
             lambda pkt: pkt.present and pkt.present.dBm_AntNoise),
         # Lock_Quality
@@ -323,14 +326,14 @@ class RadioTap(Packet):
         # ChannelPlus
         ConditionalField(
             _RadiotapReversePadField(
-                FlagsField("ChannelFlags2", None, -32, _rt_channelflags2)
+                FlagsField("ChannelPlusFlags", None, -32, _rt_channelflags2)
             ),
             lambda pkt: pkt.present and pkt.present.ChannelPlus),
         ConditionalField(
-            LEShortField("ChannelFrequency", 0),
+            LEShortField("ChannelPlusFrequency", 0),
             lambda pkt: pkt.present and pkt.present.ChannelPlus),
         ConditionalField(
-            ByteField("ChannelNumber", 0),
+            ByteField("ChannelPlusNumber", 0),
             lambda pkt: pkt.present and pkt.present.ChannelPlus),
         # MCS
         ConditionalField(
@@ -472,15 +475,18 @@ class RadioTap(Packet):
             lambda pkt: pkt.present and pkt.present.L_SIG),
         # Remaining
         StrLenField('notdecoded', "",
-                    length_from=lambda pkt: max(
-                        pkt.len - pkt._tmp_dissect_pos, 0
-                    ))
+                    length_from=lambda pkt: 0)
     ]
 
     def guess_payload_class(self, payload):
         if self.present and self.present.Flags and self.Flags.FCS:
             return Dot11FCS
         return Dot11
+
+    def post_dissect(self, s):
+        length = max(self.len - len(self.original) + len(s), 0)
+        self.notdecoded = s[:length]
+        return s[length:]
 
     def post_build(self, p, pay):
         if self.len is None:
@@ -518,8 +524,7 @@ class Dot11(Packet):
 
     def mysummary(self):
         # Supports both Dot11 and Dot11FCS
-        # return self.sprintf("802.11 %%%s.type%% %%%s.subtype%% %%%s.addr2%% > %%%s.addr1%%" % ((self.__class__.__name__,) * 4))  # noqa: E501
-        return self.sprintf("802.11 %%%s.type%% %%%s.subtype%%" % ((self.__class__.__name__,) * 2))  # noqa: E501
+        return self.sprintf("802.11 %%%s.type%% %%%s.subtype%% %%%s.addr2%% > %%%s.addr1%%" % ((self.__class__.__name__,) * 4))  # noqa: E501
 
     def guess_payload_class(self, payload):
         if self.type == 0x02 and (0x08 <= self.subtype <= 0xF and self.subtype != 0xD):  # noqa: E501
@@ -718,7 +723,7 @@ class Dot11Elt(Packet):
             ssid = repr(self.info)
             if ssid[:2] in ['b"', "b'"]:
                 ssid = ssid[1:]
-            return "SSID", [Dot11]
+            return "SSID=%s" % ssid, [Dot11]
         else:
             return ""
 
@@ -902,7 +907,7 @@ class Dot11EltCountry(Dot11Elt):
         ),
         ConditionalField(
             ByteField("pad", 0),
-            lambda pkt: (pkt.len + 1) % 2
+            lambda pkt: (len(pkt.descriptors) + 1) % 2
         )
     ]
 

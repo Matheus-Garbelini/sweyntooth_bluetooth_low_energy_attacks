@@ -10,6 +10,7 @@ from scapy.fields import ByteField, XByteField, BitEnumField, \
     PacketListField, XBitField, XByteEnumField, FieldListField, FieldLenField
 from scapy.packet import Packet
 from scapy.contrib.automotive.obd.packet import OBD_Packet
+from scapy.config import conf
 
 
 class OBD_DTC(OBD_Packet):
@@ -48,6 +49,11 @@ class OBD_NR(Packet):
         XByteEnumField('response_code', 0, responses)
     ]
 
+    def answers(self, other):
+        return self.request_service_id == other.service and \
+            (self.response_code != 0x78 or
+             conf.contribs['OBD']['treat-response-pending-as-answer'])
+
 
 class OBD_S01(Packet):
     name = "S1_CurrentData"
@@ -81,6 +87,9 @@ class OBD_S03_PR(Packet):
         PacketListField('dtcs', [], OBD_DTC, count_from=lambda pkt: pkt.count)
     ]
 
+    def answers(self, other):
+        return other.__class__ == OBD_S03
+
 
 class OBD_S04(Packet):
     name = "S4_ClearDTCs"
@@ -88,6 +97,9 @@ class OBD_S04(Packet):
 
 class OBD_S04_PR(Packet):
     name = "S4_ClearDTCsPositiveResponse"
+
+    def answers(self, other):
+        return other.__class__ == OBD_S04
 
 
 class OBD_S06(Packet):
@@ -107,6 +119,9 @@ class OBD_S07_PR(Packet):
         FieldLenField('count', None, count_of='dtcs', fmt='B'),
         PacketListField('dtcs', [], OBD_DTC, count_from=lambda pkt: pkt.count)
     ]
+
+    def answers(self, other):
+        return other.__class__ == OBD_S07
 
 
 class OBD_S08(Packet):
@@ -133,3 +148,6 @@ class OBD_S0A_PR(Packet):
         FieldLenField('count', None, count_of='dtcs', fmt='B'),
         PacketListField('dtcs', [], OBD_DTC, count_from=lambda pkt: pkt.count)
     ]
+
+    def answers(self, other):
+        return other.__class__ == OBD_S0A

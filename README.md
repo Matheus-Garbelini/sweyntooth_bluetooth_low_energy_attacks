@@ -51,20 +51,6 @@ Taking as example the Key Size Overflow vulnerability,  the following output is 
 
 
 
-#### Zero LTK Installation ([CVE-2019-19194](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19194))
-
-The most critical SweynTooth vulnerability is the Zero LTK Installation which allows an attacker to fully bypass the latest Bluetooth pairing procedure (secure connections) by forcing an encryption setup procedure with a zero filled LTK. In order to test your device against this vulnerability, the device must accept or support secure connections as pairing method. You can run the PoC as follows:
-
-```shell
-python Telink_zero_ltk_installation.py COM7 A4:C1:38:D8:AD:A9
-```
-
-Note that the arguments ` COM7 ` and `A4:C1:38:D8:AD:A9` are different based on your setup. If the device is vulnerable, the PoC outputs the following:
-
-![zero_ltk](docs/zero_ltk.png)
-
-
-
 #### Available BLE exploits
 
 Each exploit script corresponds to one flaw. The following summary table captures the correspondence between the vulnerability and a script to exploit the vulnerability on the affected SoCs.
@@ -85,6 +71,28 @@ Each exploit script corresponds to one flaw. The following summary table capture
 Generally, products using the affected SoCs employ a watchdog to automatically restart the BLE SoC in the case a fault occurs, hence not all products can be deadlocked. Nevertheless, it should be possible to get some visual or audio indication from the product if the same crashes and restarts.
 
 
+
+#### Zero LTK Installation ([CVE-2019-19194](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-19194))
+
+The most critical SweynTooth vulnerability is the Zero LTK Installation which allows an attacker to fully bypass the latest Bluetooth pairing procedure (secure connections) by forcing an encryption setup procedure with a zero filled LTK. In order to test your device against this vulnerability, the device must accept or support secure connections as pairing method. You can run the PoC as follows:
+
+```shell
+python Telink_zero_ltk_installation.py COM7 A4:C1:38:D8:AD:A9
+```
+
+Note that the arguments ` COM7 ` and `A4:C1:38:D8:AD:A9` are different based on your setup. If the device is vulnerable, the PoC outputs the following:
+
+![zero_ltk](docs/zero_ltk.png)
+
+
+
+#### LLID Deadlock (CVE-2019-17060/1)
+
+The LLID deadlock script clears the LLID field when sending both version request or pairing requests in an alternative manner on each re-connection with the peripheral. This is done to to trigger the vulnerability in both NXP and Cypress vulnerable SoCs. When runnig the script against the vulnerable KW41Z, the stack is deadlocked and should send out of order Link Layer packets. The script tries to detect when the stack is deadlocked and outputs the following for vulnerable KW41Z devices:
+
+![zero_ltk](docs/llid_deadlock_output1.png)
+
+Vulnerable Cypress devices generally disable advertisements after the attack. Therefore you should see an error message indicating that a crash has been detected. When testing this script against a vulnerable Fitbit Inspire, the smartwatch either crashes immediately or disable its advertisements temporarily. Intermittent attacks against this device should cause a permanent BLE malfunction, requiring the user to manually reboot Fitbit inspire.
 
 ### KNOB Tester (Bluetooth Low Energy variant)
 

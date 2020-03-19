@@ -115,7 +115,7 @@ while True:
             timeout.cancel()
             print(Fore.GREEN + advertiser_address.upper() + ': ' + pkt.summary()[7:] + ' Detected')
             # Send connection request to advertiser
-            conn_request = BTLE() / BTLE_ADV(RxAdd=0, TxAdd=1) / BTLE_CONNECT_REQ(
+            conn_request = BTLE() / BTLE_ADV(RxAdd=pkt.TxAdd, TxAdd=1) / BTLE_CONNECT_REQ(
                 InitA=master_address,
                 AdvA=advertiser_address,
                 AA=access_address,  # Access address (any)

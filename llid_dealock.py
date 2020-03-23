@@ -108,7 +108,8 @@ while True:
 
         # --------------- Process Link Layer Packets here ------------------------------------
         # Check if packet from advertised is received
-        if pkt and (BTLE_SCAN_RSP in pkt or BTLE_ADV in pkt) and pkt.AdvA == advertiser_address.lower():
+        if pkt and (BTLE_SCAN_RSP in pkt or BTLE_ADV in pkt) and pkt.AdvA == advertiser_address.lower() and \
+                connecting == False:
             connecting = True
             update_timeout('scan_timeout')
             disable_timeout('crash_timeout')

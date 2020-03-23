@@ -21,7 +21,7 @@ access_address = 0x9a328370
 none_count = 0
 end_connection = False
 connecting = False
-
+slave_addr_type = 0
 # Autoreset colors
 colorama.init(autoreset=True)
 
@@ -54,8 +54,9 @@ def crash_timeout():
 
 
 def scan_timeout():
+    global connecting, slave_addr_type
     connecting = False
-    scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
+    scan_req = BTLE() / BTLE_ADV(RxAdd=slave_addr_type) / BTLE_SCAN_REQ(
         ScanA=master_address,
         AdvA=advertiser_address)
     driver.send(scan_req)
@@ -65,7 +66,7 @@ def scan_timeout():
 # Open serial port of NRF52 Dongle
 driver = NRF52Dongle(serial_port, '115200')
 # Send scan request
-scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
+scan_req = BTLE() / BTLE_ADV(RxAdd=slave_addr_type) / BTLE_SCAN_REQ(
     ScanA=master_address,
     AdvA=advertiser_address)
 driver.send(scan_req)
@@ -92,14 +93,14 @@ while True:
             print(Fore.MAGENTA + "Slave RX <--- " + pkt.summary()[7:])
         # --------------- Process Link Layer Packets here ------------------------------------
         # Check if packet from advertised is received
-        if BTLE_SCAN_RSP in pkt and pkt.AdvA == advertiser_address.lower() and connecting == False:
+        if (BTLE_SCAN_RSP in pkt or BTLE_ADV in pkt) and pkt.AdvA == advertiser_address.lower() and connecting == False:
             connecting = True
             update_timeout('scan_timeout')
             disable_timeout('crash_timeout')
-
+            slave_addr_type = pkt.TxAdd
             print(Fore.GREEN + advertiser_address.upper() + ': ' + pkt.summary()[7:] + ' Detected')
             # Send connection request to advertiser
-            conn_request = BTLE() / BTLE_ADV(RxAdd=pkt.TxAdd, TxAdd=0) / BTLE_CONNECT_REQ(
+            conn_request = BTLE() / BTLE_ADV(RxAdd=slave_addr_type, TxAdd=0) / BTLE_CONNECT_REQ(
                 InitA=master_address,
                 AdvA=advertiser_address,
                 AA=access_address,  # Access address (any)

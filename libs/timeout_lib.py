@@ -5,28 +5,28 @@ global_timers = {}
 
 def start_timeout(timer_name, seconds, callback):
     global global_timers
+    disable_timeout(timer_name)
     timer = Timer(seconds, callback)
-    global_timers[timer_name] = timer
     timer.daemon = True
+    timer.setName(timer_name)
     timer.start()
-
-
-def disable_timeout(timer_name):
-    global global_timers
-    try:
-        timer = global_timers[timer_name]
-        timer.cancel()
-        setattr(global_timers, timer_name, None)
-    except:
-        return
+    global_timers[timer_name] = timer
 
 
 def update_timeout(timer_name):
     global global_timers
-    try:
+    if timer_name in global_timers:
         timer = global_timers[timer_name]
+
         if timer:
             timer.cancel()
             start_timeout(timer_name, timer.interval, timer.function)
-    except:
-        return
+
+
+def disable_timeout(timer_name):
+    if timer_name in global_timers:
+        timer = global_timers[timer_name]
+        if timer:
+            timer.cancel()
+            timer.cancel()
+            global_timers[timer_name] = None

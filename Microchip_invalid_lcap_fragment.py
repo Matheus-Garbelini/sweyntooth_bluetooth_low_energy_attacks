@@ -12,7 +12,7 @@ from drivers.NRF52_dongle import NRF52Dongle
 from scapy.layers.bluetooth4LE import *
 from scapy.layers.bluetooth import *
 # timeout lib
-from timeout_lib import start_timeout, disable_timeout, update_timeout
+from timeout_lib import start_timeout, update_timeout
 
 # Default master address
 master_address = '5d:36:ac:90:0b:22'
@@ -22,6 +22,8 @@ none_count = 0
 end_connection = False
 connecting = False
 slave_addr_type = 0
+CRASH_TIMEOUT = 5
+slave_ever_connected = False
 # Autoreset colors
 colorama.init(autoreset=True)
 
@@ -48,10 +50,12 @@ print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
 
 
 def crash_timeout():
-    print(Fore.RED + "No advertisement from " + advertiser_address.upper() +
-          ' received\nThe device may have crashed!!!')
-    driver.save_pcap()
-    disable_timeout('scan_timeout')
+    global slave_ever_connected
+    if slave_ever_connected == True:
+        print(Fore.RED + "No advertisement from " + advertiser_address.upper() +
+              ' received\nThe device may have crashed!!!')
+        driver.save_pcap()
+    start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
 
 
 def scan_timeout():
@@ -74,6 +78,7 @@ scan_req = BTLE() / BTLE_ADV(RxAdd=slave_addr_type) / BTLE_SCAN_REQ(
 driver.send(scan_req)
 
 start_timeout('scan_timeout', 3, scan_timeout)
+start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
 
 print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
 
@@ -97,7 +102,7 @@ while True:
             continue
         elif BTLE_DATA in pkt and BTLE_EMPTY_PDU not in pkt:
             update_timeout('scan_timeout')
-            disable_timeout('crash_timeout')
+            update_timeout('crash_timeout')
             # Print slave data channel PDUs summary
             print(Fore.MAGENTA + "RX <--- " + pkt.summary()[7:])
         # --------------- Process Link Layer Packets here ------------------------------------
@@ -105,7 +110,7 @@ while True:
         if (BTLE_SCAN_RSP in pkt or BTLE_ADV in pkt) and pkt.AdvA == advertiser_address.lower() and connecting == False:
             connecting = True
             update_timeout('scan_timeout')
-            disable_timeout('crash_timeout')
+            update_timeout('crash_timeout')
             slave_addr_type = pkt.TxAdd
 
             print(Fore.GREEN + advertiser_address.upper() + ': ' + pkt.summary()[7:] + ' Detected')
@@ -127,8 +132,10 @@ while True:
             # Yes, we're sending raw link layer messages in Python.
             # Don't tell Bluetooth SIG as this is forbidden (for some reason)!!!
             driver.send(conn_request)
+
         elif BTLE_DATA in pkt and connecting == True:
             connecting = False
+            slave_ever_connected = True
             att_start_address = 0
             print(Fore.GREEN + 'Slave Connected (L2Cap channel established)')
             # 1) Send Feature request
@@ -199,6 +206,9 @@ while True:
 
                 print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
                 driver.send(scan_req)
-                start_timeout('crash_timeout', 7, crash_timeout)
+                start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
+
+        if BTLE_DATA in pkt:
+            update_timeout('crash_timeout')
 
     sleep(0.01)

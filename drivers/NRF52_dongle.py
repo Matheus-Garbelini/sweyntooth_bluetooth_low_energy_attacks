@@ -8,13 +8,13 @@ from scapy.utils import raw, wrpcap
 from scapy.layers.bluetooth4LE import BTLE, NORDIC_BLE
 
 # USB Serial commands
-NRF52_CMD_DATA = '\xA7'
-NRF52_CMD_CHECKSUM_ERROR = '\xA8'
-NRF52_CMD_CONFIG_AUTO_EMPTY_PDU = '\xA9'
-NRF52_CMD_CONFIG_ACK = '\xAA'
-NRF52_CMD_BOOTLOADER_SEQ1 = '\xA6'
-NRF52_CMD_BOOTLOADER_SEQ2 = '\xC7'
-NRF52_CMD_LOG = '\x7F'
+NRF52_CMD_DATA = b'\xA7'
+NRF52_CMD_CHECKSUM_ERROR = b'\xA8'
+NRF52_CMD_CONFIG_AUTO_EMPTY_PDU = b'\xA9'
+NRF52_CMD_CONFIG_ACK = b'\xAA'
+NRF52_CMD_BOOTLOADER_SEQ1 = b'\xA6'
+NRF52_CMD_BOOTLOADER_SEQ2 = b'\xC7'
+NRF52_CMD_LOG = b'\x7F'
 
 
 # Driver class
@@ -51,7 +51,7 @@ class NRF52Dongle:
     # RAW functions ---------------------------
     def raw_send(self, pkt):
         raw_pkt = bytearray(pkt[:-3])  # Cut the 3 bytes CRC
-        crc = chr(sum(raw_pkt) & 0xFF)  # Calculate CRC of raw packet data
+        crc = bytearray([sum(raw_pkt) & 0xFF])  # Calculate CRC of raw packet data
         pkt_len = len(raw_pkt)  # Get raw packet data length
         l = bytearray([pkt_len & 0xFF, (pkt_len >> 8) & 0xFF])  # Pack length in 2 bytes (little infian)
         data = NRF52_CMD_DATA + l + raw_pkt + crc

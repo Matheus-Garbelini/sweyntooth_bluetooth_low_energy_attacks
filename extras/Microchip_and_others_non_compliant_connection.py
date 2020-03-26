@@ -21,10 +21,8 @@ send_version_ind = False
 end_connection = False
 
 
-def send(scapy_pkt, print_tx=True):
+def send(scapy_pkt):
     driver.send(scapy_pkt)
-    if print_tx:
-        print(Fore.CYAN + "TX ---> " + scapy_pkt.summary()[7:])
 
 
 # Autoreset colors
@@ -65,11 +63,14 @@ def scan_timeout():
             AdvA=advertiser_address)
         if conn_request.hop == 0:
             conn_request.hop = 1
+        elif conn_request.hop == 1:
+            conn_request.hop = 17
         else:
             conn_request.hop = 0
+
         send(scan_req)
 
-    timeout_scan = Timer(5, scan_timeout)
+    timeout_scan = Timer(2.0, scan_timeout)
     timeout_scan.daemon = True
     timeout_scan.start()
 
@@ -87,7 +88,7 @@ scan_req = BTLE() / BTLE_ADV(RxAdd=0) / BTLE_SCAN_REQ(
 send(scan_req)
 
 # Start the scan timeout to resend packets
-timeout_scan = Timer(5, scan_timeout)
+timeout_scan = Timer(2.0, scan_timeout)
 timeout_scan.daemon = True
 timeout_scan.start()
 

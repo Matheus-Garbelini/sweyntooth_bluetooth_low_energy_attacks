@@ -59,6 +59,8 @@ def crash_timeout():
 
 
 def scan_timeout():
+    global received_version_ind
+    received_version_ind = False
     scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
         ScanA=master_address,
         AdvA=advertiser_address)

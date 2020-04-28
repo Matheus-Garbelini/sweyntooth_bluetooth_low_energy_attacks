@@ -24,7 +24,7 @@ from Crypto.Cipher import AES
 try:
     importlib.import_module('BLESMPServer')
 except:
-    print(Fore.RED + "Please install the BLESMPServer library by running './install_dependencies.sh'")
+    print(Fore.RED + "Please install the BLESMPServer library by running './install_smp_server.sh'")
 import BLESMPServer
 
 # Default master address

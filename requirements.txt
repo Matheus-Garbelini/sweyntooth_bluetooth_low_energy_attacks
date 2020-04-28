@@ -1,3 +1,4 @@
 pyserial
 nrfutil
 pycryptodome
+six

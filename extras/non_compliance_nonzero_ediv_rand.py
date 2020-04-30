@@ -1,10 +1,10 @@
 #!/usr/bin/python
+import importlib
 import os
 import platform
+import sys
 from binascii import hexlify
 from time import sleep
-import importlib
-import sys
 
 # extra libs
 sys.path.insert(0, os.getcwd() + '/')  # If the user runs this on previous path
@@ -41,6 +41,7 @@ pairing_iocap = 0x03  # NoInputNoOutput
 paring_auth_request = 0x08 | 0x40 | 0x01  # Le Secure Connection + MITM + bounding
 print(Fore.YELLOW + 'Using IOCap: ' + hex(pairing_iocap) + ', Auth REQ: ' + hex(paring_auth_request))
 # Internal vars
+script_folder = os.path.dirname(os.path.realpath(__file__))
 SCAN_TIMEOUT = 2
 CRASH_TIMEOUT = 6
 none_count = 0
@@ -233,7 +234,7 @@ def receive_encrypted(pkt):
 # Open serial port of NRF52 Dongle
 try:
     driver = NRF52Dongle(serial_port, '115200', logs_pcap=True,
-                         pcap_filename='logs/deadlock_hci_mic.pcap')
+                         pcap_filename=script_folder + '/../logs/non_compliance_nonzero_ediv_rand.pcap')
 except Exception as e:
     print(Fore.RED + str(e))
     print(Fore.RED + 'Make sure the nRF52 dongle is properly recognized by your computer')
@@ -419,7 +420,7 @@ while True:
                    'Peripheral accepted nonzero ediv or rand after pairing procedure\n'
                    'Restarting test...')
             end_connection = True
-            # driver.save_pcap()
+            driver.save_pcap()
             # exit(0)
 
         elif LL_REJECT_IND in pkt or SM_Failed in pkt:
@@ -439,10 +440,10 @@ while True:
             scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
                 ScanA=master_address,
                 AdvA=advertiser_address)
-            print(Fore.YELLOW + 'Connection reset, malformed packets were sent')
+            print(Fore.YELLOW + 'Connection reset, malformed packet was sent')
 
             print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
             driver.send(scan_req)
             start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
 
-sleep(0.01)
+    sleep(0.01)

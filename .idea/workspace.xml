@@ -2,8 +2,7 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="b0642aa4-4beb-4c57-aa45-dc62950ac2d7" name="Default Changelist" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Microchip_invalid_lcap_fragment.py" beforeDir="false" afterPath="$PROJECT_DIR$/Microchip_invalid_lcap_fragment.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extras/non_compliance_dhcheck_skip.py" beforeDir="false" afterPath="$PROJECT_DIR$/extras/non_compliance_dhcheck_skip.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -12,14 +11,26 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="FileEditorManager">
-    <leaf>
-      <file pinned="false" current-in-tab="true">
-        <entry file="file://$PROJECT_DIR$/Microchip_invalid_lcap_fragment.py">
+    <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/Telink_zero_ltk_installation.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="382">
-              <caret line="115" selection-start-line="115" selection-end-line="115" />
+            <state relative-caret-position="508">
+              <caret line="343" selection-start-line="343" selection-end-line="343" />
               <folding>
                 <element signature="e#19#28#0" expanded="true" />
+              </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="true">
+        <entry file="file://$PROJECT_DIR$/extras/non_compliance_dhcheck_skip.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="566">
+              <caret line="396" selection-start-line="396" selection-end-line="396" />
+              <folding>
+                <element signature="e#18#34#0" expanded="true" />
               </folding>
             </state>
           </provider>
@@ -81,12 +92,14 @@
         <option value="$PROJECT_DIR$/link_layer_length_overflow.py" />
         <option value="$PROJECT_DIR$/CC_connection_req_crash.py" />
         <option value="$PROJECT_DIR$/CC2640R2_public_key_crash.py" />
-        <option value="$PROJECT_DIR$/Telink_zero_ltk_installation.py" />
         <option value="$PROJECT_DIR$/Telink_key_size_overflow.py" />
         <option value="$PROJECT_DIR$/sequential_att_deadlock.py" />
         <option value="$PROJECT_DIR$/DA14580_exploit_att_crash.py" />
         <option value="$PROJECT_DIR$/DA14680_exploit_silent_overflow.py" />
         <option value="$PROJECT_DIR$/Microchip_invalid_lcap_fragment.py" />
+        <option value="$PROJECT_DIR$/extras/non_compliance_nonzero_ediv_rand.py" />
+        <option value="$PROJECT_DIR$/Telink_zero_ltk_installation.py" />
+        <option value="$PROJECT_DIR$/extras/non_compliance_dhcheck_skip.py" />
       </list>
     </option>
   </component>
@@ -101,7 +114,6 @@
       <foldersAlwaysOnTop value="true" />
     </navigator>
     <panes>
-      <pane id="Scope" />
       <pane id="ProjectPane">
         <subPane>
           <expand>
@@ -118,6 +130,7 @@
           <select />
         </subPane>
       </pane>
+      <pane id="Scope" />
     </panes>
   </component>
   <component name="PropertiesComponent">
@@ -282,17 +295,18 @@
       <workItem from="1583949014611" duration="120000" />
       <workItem from="1584883226086" duration="4057000" />
       <workItem from="1584955888585" duration="10000" />
+      <workItem from="1588255118572" duration="1315000" />
     </task>
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="20577000" />
+    <option name="totallyTimeSpent" value="21892000" />
   </component>
   <component name="ToolWindowManager">
-    <frame x="0" y="0" width="1920" height="1040" extended-state="6" />
+    <frame x="-7" y="-7" width="1550" height="838" extended-state="6" />
     <editor active="true" />
     <layout>
-      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.255603" />
+      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.25871313" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
       <window_info id="Favorites" order="2" side_tool="true" />
       <window_info anchor="bottom" id="Docker" order="0" show_stripe_button="false" />
@@ -319,11 +333,11 @@
     <option name="version" value="1" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$Telink_zero_pmk_installation.coverage" NAME="Telink_zero_ltk_installation Coverage Results" MODIFIED="1583851401102" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$Telink_zero_ltk_installation.coverage" NAME="Telink_zero_ltk_installation Coverage Results" MODIFIED="1583916825753" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$knob_tester_ble.coverage" NAME="knob_tester_ble Coverage Results" MODIFIED="1584884171229" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/extras" />
     <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$Telink_key_size_overflow.coverage" NAME="Telink_key_size_overflow Coverage Results" MODIFIED="1583842748357" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$CC_connection_req_crash.coverage" NAME="CC_connection_req_crash Coverage Results" MODIFIED="1584924545549" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$Telink_zero_pmk_installation.coverage" NAME="Telink_zero_ltk_installation Coverage Results" MODIFIED="1583851401102" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$knob_tester_ble.coverage" NAME="knob_tester_ble Coverage Results" MODIFIED="1584884171229" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/extras" />
+    <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$Telink_zero_ltk_installation.coverage" NAME="Telink_zero_ltk_installation Coverage Results" MODIFIED="1583916825753" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/sweyntooth_bluetooth_low_energy_attacks$link_layer_length_overflow.coverage" NAME="link_layer_length_overflow Coverage Results" MODIFIED="1584925652833" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
   <component name="editorHistoryManager">
@@ -514,22 +528,42 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/Telink_zero_ltk_installation.py">
+    <entry file="file://$PROJECT_DIR$/Microchip_invalid_lcap_fragment.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="247">
-          <caret line="42" lean-forward="true" selection-start-line="42" selection-end-line="42" selection-end-column="19" />
+        <state relative-caret-position="118">
+          <caret line="103" column="16" selection-start-line="103" selection-start-column="16" selection-end-line="103" selection-end-column="16" />
           <folding>
             <element signature="e#19#28#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/Microchip_invalid_lcap_fragment.py">
+    <entry file="file://$PROJECT_DIR$/extras/non_compliance_nonzero_ediv_rand.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="382">
-          <caret line="115" selection-start-line="115" selection-end-line="115" />
+        <state relative-caret-position="486">
+          <caret line="449" selection-start-line="449" selection-end-line="449" />
+          <folding>
+            <element signature="e#18#34#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/Telink_zero_ltk_installation.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="508">
+          <caret line="343" selection-start-line="343" selection-end-line="343" />
           <folding>
             <element signature="e#19#28#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/extras/non_compliance_dhcheck_skip.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="566">
+          <caret line="396" selection-start-line="396" selection-end-line="396" />
+          <folding>
+            <element signature="e#18#34#0" expanded="true" />
           </folding>
         </state>
       </provider>

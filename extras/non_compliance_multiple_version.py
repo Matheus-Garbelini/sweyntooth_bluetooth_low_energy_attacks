@@ -74,6 +74,7 @@ def send_version_ind():
     pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
     driver.send(pkt)
 
+
 # Open serial port of NRF52 Dongle
 driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, \
                      pcap_filename=os.path.basename(__file__).split('.')[0] + '.pcap')

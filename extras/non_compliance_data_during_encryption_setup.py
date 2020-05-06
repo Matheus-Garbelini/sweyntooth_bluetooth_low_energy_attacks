@@ -35,14 +35,16 @@ access_address = 0x9a328370
 pairing_iocap = 0x03  # NoInputNoOutput
 # pairing_iocap = 0x04  # KeyboardDisplay
 # paring_auth_request = 0x00  # No bounding
-# paring_auth_request = 0x01  # Bounding
-paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
+paring_auth_request = 0x01  # Bounding # Start with legacy pairing
+# paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
 # paring_auth_request = 0x04 | 0x01  # MITM + bounding
 # paring_auth_request = 0x08 | 0x40 | 0x01  # Le Secure Connection + MITM + bounding
 print(Fore.YELLOW + 'Using IOCap: ' + hex(pairing_iocap) + ', Auth REQ: ' + hex(paring_auth_request))
 # Internal vars
 script_folder = os.path.dirname(os.path.realpath(__file__))
 SCAN_TIMEOUT = 3
+SMP_TIMEOUT = 2
+KEY_EXCHANGE_TIMEOUT = 1
 CRASH_TIMEOUT = 6
 none_count = 0
 end_connection = False
@@ -53,22 +55,29 @@ conn_ltk = None
 conn_tx_packet_counter = 0
 conn_rx_packet_counter = 0
 encryption_enabled = False
-pairing_procedure = False
 crashed = False
 version_received = False
 fragment = False
 fragment_start = False
 fragment_left = False
-switch_ediv_rand = 0
 slave_txaddr = 0  # use public address by default
 slave_ever_connected = False
-ediv = '\x00'
-rand = '\x00'
+disable_smp = False
 
+# Script variables
 run_script = True
 pairing_rejections = 0
-noncompliances = {}
-tests = 0
+switch_pairing = False
+# anomaly variables
+enable_anomaly = False
+enc_start_index = 0
+enc_start_index_max = 0
+enable_secure_connections = False
+anomalies = [[], []]
+last_smp_summary = None
+final_test = False
+data_not_allowed = False
+smp_retries = 0
 
 addr_type = {
     0: 'Public',
@@ -100,41 +109,40 @@ print(Fore.YELLOW + 'Advertiser Address: ' + advertiser_address.upper())
 
 
 def crash_timeout():
+    global enc_start_index
+    enc_start_index = 0
     if slave_ever_connected:
         print(Fore.RED + "No advertisement from " + advertiser_address.upper() +
               ' received\nThe device may have crashed!!!')
         disable_timeout('scan_timeout')
 
 
-def switch_ediv_rand_test():
-    global switch_ediv_rand, ediv, rand, tests, run_script
-    if switch_ediv_rand == 0:
-        ediv = b'\xff'
-        rand = b'\x00'
-        switch_ediv_rand = 1
-    elif switch_ediv_rand == 1:
-        ediv = b'\x00'
-        rand = b'\xff'
-        switch_ediv_rand = 2
-    elif switch_ediv_rand == 2:
-        ediv = b'\xff'
-        rand = b'\xff'
-        switch_ediv_rand = 0
+def scan_timeout():
+    global data_not_allowed, run_script, switch_pairing, connecting, encryption_enabled, enc_start_index, version_received, end_connection
+    end_connection = False
+    encryption_enabled = False
+    version_received = False
+    data_not_allowed = False
 
-    tests += 1
+    if switch_pairing and not enable_secure_connections:
+        change_pairing()
 
-    if tests > 4:
+    if not final_test:
+        scan_req = BTLE() / BTLE_ADV(RxAdd=slave_txaddr) / BTLE_SCAN_REQ(
+            ScanA=master_address,
+            AdvA=advertiser_address)
+        driver.send(scan_req)
+        start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
+    else:
         run_script = False
 
 
-def scan_timeout():
-    global connecting
-    connecting = False
-    scan_req = BTLE() / BTLE_ADV(RxAdd=slave_txaddr) / BTLE_SCAN_REQ(
-        ScanA=master_address,
-        AdvA=advertiser_address)
-    driver.send(scan_req)
-    start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
+def key_exchange_timeout():
+    global end_connection, conn_ltk, enc_start_index_max, enable_anomaly, first_ltk
+    first_ltk = str(conn_ltk)
+    enable_anomaly = True
+    enc_start_index_max = 0
+    end_connection = True
 
 
 def set_security_settings(pkt):
@@ -150,8 +158,25 @@ def bt_crypto_e(key, plaintext):
     return aes.encrypt(str(plaintext))
 
 
+def smp_timeout():
+    global smp_retries, run_script
+    print(Fore.YELLOW + '-----------------------------------------------------------------------')
+    print(Fore.GREEN + 'Peripheral is not answering a SMP/ENC request. This is a good indication')
+    if smp_retries < 5:
+        print(Fore.YELLOW + 'Retrying...')
+        smp_retries += 1
+        scan_timeout()
+    else:
+        run_script = False
+
+
 def send_pairing_request():
-    global pairing_procedure, access_address, pairing_iocap, paring_auth_request, master_address, advertiser_address
+    global access_address, pairing_iocap, paring_auth_request, master_address, advertiser_address
+    if enable_secure_connections is False:
+        paring_auth_request = 0x01
+    else:
+        paring_auth_request = 0x01 | 0x08  # Secure connections
+
     master_address_raw = ''.join(map(lambda x: chr(int(x, 16)), master_address.split(':')))
     slave_address_raw = ''.join(map(lambda x: chr(int(x, 16)), advertiser_address.split(':')))
     BLESMPServer.set_pin_code('\x00' * 4)
@@ -159,10 +184,11 @@ def send_pairing_request():
                                       pairing_iocap, paring_auth_request)
     hci_res = BLESMPServer.pairing_request()
     if hci_res:
-        pairing_procedure = True
         # Pairing request
         pkt = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / HCI_Hdr(hci_res)[SM_Hdr]
         driver.send(pkt)
+
+    start_timeout('smp_timeout', SMP_TIMEOUT, smp_timeout)
 
 
 def defragment_l2cap(pkt):
@@ -208,7 +234,7 @@ def send_encrypted(pkt):
     enc_pkt, mic = aes.encrypt_and_digest(raw_pkt[6:-3])  # get payload and exclude 3 bytes of crc
     conn_tx_packet_counter += 1  # Increment packet counter
     driver.raw_send(aa + chr(header) + chr(length) + enc_pkt + mic + crc)
-    print(Fore.YELLOW + "TX ---> [Encrypted]{" + pkt.summary()[7:] + '}')
+    print(Fore.CYAN + "TX ---> [Encrypted]{" + pkt.summary()[7:] + '}')
 
 
 def receive_encrypted(pkt):
@@ -243,10 +269,20 @@ def receive_encrypted(pkt):
         return BTLE(aa + chr(header) + chr(length) + dec_pkt + b'\x00\x00\x00')
 
 
+def change_pairing():
+    global switch_pairing, enable_secure_connections, enc_start_index_max, enable_anomaly
+    switch_pairing = False
+    print(Fore.GREEN + "[!] Tests with legacy pairing finished,"
+                       " switching to Secure Connections on next connection")
+    enable_secure_connections = True
+    enc_start_index_max = 0
+    enable_anomaly = False
+
+
 # Open serial port of NRF52 Dongle
 try:
     driver = NRF52Dongle(serial_port, '115200', logs_pcap=True,
-                         pcap_filename=script_folder + '/../logs/non_compliance_nonzero_ediv_rand.pcap')
+                         pcap_filename=script_folder + '/../logs/non_compliance_data_during_enc_setup.pcap')
 except Exception as e:
     print(Fore.RED + str(e))
     print(Fore.RED + 'Make sure the nRF52 dongle is properly recognized by your computer')
@@ -285,17 +321,26 @@ while run_script:
         elif BTLE_DATA in pkt and BTLE_EMPTY_PDU not in pkt:
             update_timeout('scan_timeout')
             # Print slave data channel PDUs summary
-            print(Fore.MAGENTA + "RX <--- " + pkt.summary()[7:])
+            if not encryption_enabled:
+                print(Fore.MAGENTA + "RX <--- " + pkt.summary()[7:])
+            else:
+                print(Fore.MAGENTA + "RX <--- [Encrypted]{" + pkt.summary()[7:] + "}")
 
         if BTLE_DATA in pkt:
             none_count = 0
             update_timeout('crash_timeout')
+            if BTLE_EMPTY_PDU not in pkt and data_not_allowed \
+                    and (LL_START_ENC_RSP not in pkt and LL_START_ENC_REQ not in pkt):
+                anomalies[enable_secure_connections].append(pkt.summary())
+                print(Fore.RED + "Anomaly, received " + pkt.summary().split('/')[-1] + " during Encryption Setup")
         # --------------- Process Link Layer Packets here ------------------------------------
         # Check if packet from advertised is received
         if (
                 BTLE_SCAN_RSP in pkt or BTLE_ADV_IND in pkt) and pkt.AdvA == advertiser_address.lower() and connecting == False:
             connecting = True
             end_connection = False
+            disable_smp = False
+            data_not_allowed = False
             update_timeout('scan_timeout')
             update_timeout('crash_timeout')
             start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
@@ -328,6 +373,9 @@ while run_script:
             connecting = False
             update_timeout('crash_timeout')
             slave_ever_connected = True
+            enc_start_index = 0
+            version_received = False
+
             if LL_VERSION_IND in pkt:
                 version_received = True
                 # Send version indication response
@@ -347,6 +395,15 @@ while run_script:
             set_security_settings(pkt)
 
         elif LL_FEATURE_RSP in pkt:
+            if not version_received:
+                pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
+                driver.send(pkt)
+            else:
+                pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_REQ(
+                    max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
+                driver.send(pkt)
+
+        elif LL_VERSION_IND in pkt:
             pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_REQ(
                 max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
             driver.send(pkt)
@@ -362,43 +419,72 @@ while run_script:
             driver.send(pkt)
 
         elif ATT_Exchange_MTU_Response in pkt:
-            # Send version indication request
-            if version_received == False:
-                pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
-                driver.send(pkt)
-            else:
-                send_pairing_request()
-
-        elif LL_VERSION_IND in pkt:
             send_pairing_request()
 
-        elif pairing_procedure and SM_Hdr in pkt:
-            # Handle pairing response and so on
-            smp_answer = BLESMPServer.send_hci(raw(HCI_Hdr() / HCI_ACL_Hdr() / L2CAP_Hdr() / pkt[SM_Hdr]))
-            if smp_answer is not None and isinstance(smp_answer, list):
-                for res in smp_answer:
-                    res = HCI_Hdr(res)  # type: HCI_Hdr
-                    if SM_Hdr in res:
-                        pkt = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / res[SM_Hdr]
-                        if encryption_enabled:
-                            send_encrypted(pkt)
-                        else:
-                            driver.send(pkt)
+        elif SM_Hdr in pkt:
+            if SM_Pairing_Response in pkt:
+                disable_timeout('smp_timeout')
+                print(Fore.YELLOW + 'Master auth: ' + hex(paring_auth_request) +
+                      ', Slave auth: ' + hex(pkt.authentication))
+                if enable_secure_connections and (pkt.authentication & 0x08):
+                    print(Fore.GREEN + "Secure Connections Pairing")
+                elif enable_secure_connections and not (pkt.authentication & 0x08):
+                    print(Fore.RED + 'Peripheral does not accept Secure Connections pairing\nEnding Test...')
+                    run_script = False
+                    disable_smp = True
+                else:
+                    print(Fore.GREEN + "Legacy Pairing")
 
-                    elif HCI_Cmd_LE_Start_Encryption_Request in res:
-                        conn_ltk = res.ltk
-                        print(Fore.GREEN + "[!] STK/LTK received from SMP server: " + hexlify(res.ltk).upper())
-                        conn_iv = b'\x00' * 4  # set IVm (IV of master)
-                        conn_skd = b'\x00' * 8  # set SKDm (session key diversifier part of master)
-                        # CHange ediv and rand
-                        switch_ediv_rand_test()
+            if enable_anomaly:
+                if enc_start_index >= enc_start_index_max:
+                    enc_start_index_max += 1
+                    enc_start_index = 0
+                    conn_ltk = BLESMPServer.get_ltk()
+                    conn_iv = '\x00' * 4  # set IVm (IV of master)
+                    conn_skd = '\x00' * 8  # set SKDm (session key diversifier part of master)
+                    enc_request = BTLE(
+                        access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_ENC_REQ(ediv='\x00',
+                                                                                           rand='\x00',
+                                                                                           skdm=conn_iv,
+                                                                                           ivm=conn_skd)
+                    driver.send(enc_request)
 
-                        enc_request = BTLE(
-                            access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_ENC_REQ(ediv=ediv,
-                                                                                               rand=rand,
-                                                                                               skdm=conn_iv,
-                                                                                               ivm=conn_skd)
-                        driver.send(enc_request)
+                    last_smp_summary = pkt.summary()
+
+                    if enable_secure_connections is False and SM_Confirm in pkt:
+                        switch_pairing = True
+
+                    elif enable_secure_connections and SM_Random in pkt:
+                        final_test = True
+
+            if not disable_smp:
+                enc_start_index += 1
+                # Handle pairing response and so on
+                smp_answer = BLESMPServer.send_hci(raw(HCI_Hdr() / HCI_ACL_Hdr() / L2CAP_Hdr() / pkt[SM_Hdr]))
+                if smp_answer is not None and isinstance(smp_answer, list):
+
+                    for res in smp_answer:
+                        res = HCI_Hdr(res)  # type: HCI_Hdr
+                        if SM_Hdr in res:
+                            pkt = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / res[SM_Hdr]
+                            last_smp_pkt = pkt
+                            if encryption_enabled:
+                                send_encrypted(pkt)
+                            else:
+                                driver.send(pkt)
+
+                        elif HCI_Cmd_LE_Start_Encryption_Request in res:
+                            conn_ltk = res.ltk
+                            print(Fore.GREEN + "[!] STK/LTK received from SMP server: " + hexlify(res.ltk).upper())
+                            conn_iv = b'\x00' * 4  # set IVm (IV of master)
+                            conn_skd = b'\x00' * 8  # set SKDm (session key diversifier part of master)
+
+                            enc_request = BTLE(
+                                access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_ENC_REQ(ediv=b'\x00',
+                                                                                                   rand=b'\x00',
+                                                                                                   skdm=conn_iv,
+                                                                                                   ivm=conn_skd)
+                            driver.send(enc_request)
 
         elif LL_ENC_RSP in pkt:
             # Get IVs and SKDs from slave encryption response
@@ -406,10 +492,15 @@ while run_script:
             conn_iv += pkt[LL_ENC_RSP].ivs  # IV = IVm || IVs
             conn_session_key = bt_crypto_e(conn_ltk[::-1], conn_skd[::-1])
             conn_packet_counter = 0
-            print(Fore.GREEN + 'Received SKD: ' + hexlify(conn_skd))
-            print(Fore.GREEN + 'Received  IV: ' + hexlify(conn_iv))
-            print(Fore.GREEN + 'Stored   LTK: ' + hexlify(conn_ltk))
-            print(Fore.GREEN + 'AES-CCM  Key: ' + hexlify(conn_session_key))
+
+            if enable_anomaly is False:
+                print(Fore.GREEN + 'Received SKD: ' + hexlify(conn_skd))
+                print(Fore.GREEN + 'Received  IV: ' + hexlify(conn_iv))
+                print(Fore.GREEN + 'Stored   LTK: ' + hexlify(conn_ltk))
+                print(Fore.GREEN + 'AES-CCM  Key: ' + hexlify(conn_session_key))
+            else:
+                data_not_allowed = True
+                # driver.send(last_smp_pkt)
 
         elif LL_SLAVE_FEATURE_REQ in pkt:
             # Send Feature request
@@ -420,24 +511,24 @@ while run_script:
         # Slave will send LL_ENC_RSP before the LL_START_ENC_RSP
         elif LL_START_ENC_REQ in pkt:
             encryption_enabled = True
-            pairing_procedure = False
             pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_START_ENC_RSP()
             send_encrypted(pkt)
 
         elif LL_START_ENC_RSP in pkt:
             print(Fore.GREEN + 'Link Encrypted')
-            print (Fore.RED + '[Noncompliance, ediv=' + hexlify(ediv) + ', rand=' + hexlify(rand) + ']\n' +
-                   'Peripheral accepted nonzero ediv or rand after pairing procedure\n'
-                   'Restarting test...')
-            end_connection = True
-            noncompliances[switch_ediv_rand] = {"ediv": ediv, "rand": rand}
-            # exit(0)
+            if enable_anomaly is False:
+                # First time, wait for ket exchange to finish
+                start_timeout('key_exchange_timeout', KEY_EXCHANGE_TIMEOUT, key_exchange_timeout)
+            else:
+                # end connection and notify with a warning
+                print(Fore.RED + 'The peripheral is using the previous established LTK')
+                end_connection = True
 
         elif LL_REJECT_IND in pkt or SM_Failed in pkt:
             print(Fore.YELLOW + 'Peripheral is rejecting pairing')
             pairing_rejections += 1
 
-            if pairing_rejections >= 5:
+            if pairing_rejections >= 10:
                 run_script = False
 
             end_connection = True
@@ -452,22 +543,50 @@ while run_script:
         if end_connection:
             end_connection = False
             encryption_enabled = False
-            scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
-                ScanA=master_address,
-                AdvA=advertiser_address)
-            print(Fore.YELLOW + 'Connection reset, non-compliant packet was sent')
+            enc_start_index = 0
+            version_received = False
+            data_not_allowed = False
 
-            print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
-            driver.send(scan_req)
-            start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
+            print(Fore.GREEN + 'Connection finished')
+
+            print(Fore.YELLOW + "-------------------------------------------------------")
+
+            if switch_pairing and not enable_secure_connections:
+                change_pairing()
+
+            if not final_test:
+                disconn_ind = BTLE() / BTLE_DATA() / CtrlPDU() / LL_TERMINATE_IND()
+                driver.send(disconn_ind)
+
+                scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(
+                    ScanA=master_address,
+                    AdvA=advertiser_address)
+
+                print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
+                driver.send(scan_req)
+                start_timeout('crash_timeout', CRASH_TIMEOUT, crash_timeout)
+            else:
+                run_script = False
 
     sleep(0.01)
 
-if len(noncompliances) > 0:
-    print(Fore.RED + "Noncompliances detected")
+if len(anomalies[0]) > 0 or len(anomalies[1]) > 0:
+    print(Fore.RED + "Anomaly detected")
+
+    if len(anomalies[0]) > 0:
+        print(Fore.RED + "Legacy Pairing:")
+        print(Fore.RED + "[!] Peripheral sends the following packet during encryption setup:")
+        for n in anomalies[0]:
+            print(Fore.RED + n)
+
+    if len(anomalies[1]) > 0:
+        print(Fore.RED + "Secure Connections Pairing:")
+        print(Fore.RED + "[!] Peripheral sends the following packet during encryption setup:")
+        for n in anomalies[1]:
+            print(Fore.RED + n)
+
     driver.save_pcap()
-    for n in noncompliances:
-        print(Fore.RED + '[Noncompliance, ediv=' + hexlify(noncompliances[n]["ediv"]) + ', rand=' + hexlify(
-            noncompliances[n]["rand"]) + ']')
-elif pairing_rejections > 0:
-    print(Fore.GREEN + "[!] Peripheral complies to zero ediv/rand!!!".upper())
+    print(Fore.GREEN + "Capture saved in logs/non_compliance_data_during_enc_setup.pcap")
+
+else:
+    print(Fore.GREEN + "[!] No anomaly found!!!".upper())

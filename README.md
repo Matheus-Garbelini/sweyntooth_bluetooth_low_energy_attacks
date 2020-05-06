@@ -121,20 +121,7 @@ The folder **captures** contains some sample captures of each vulnerability. We 
 
 ### Extras
 
-Calm down!!! This folder **does not** contain new extra attacks. It only contain tests for some variations of the SweynTooth vulnerabilities or scripts that trigger non compliances found in some SoC vendors. The intention of this folder is to contain PoCs of other BLE vulnerabilities not covered by SweynTooth such as Knob (BLE variant - downgrade to 7 bytes of key entropy). Currently, the following extra tests are available:
-
-| Script                                                 | Test Type                         | Description                                                  |
-| ------------------------------------------------------ | --------------------------------- | ------------------------------------------------------------ |
-| **knob_tester_ble.py**                                 | Vulnerability                     | Check if the BLE peripheral accepts its key size to be reduced to 7 bytes. This is application dependent as some devices may be programmed to allow the key to be within the standardized BLE key size (7-16). More secure applications strictly rejects any key size lower than 16. (Unpatched Telink SDKs allowed key sizes higher than 16, which is non-compliant) |
-| Microchip_and_others_non_compliant_connection.py       | Non-compliance                    | Performs a successful connection with the peripheral by using a non-compliant parameter: <br />**hop** increment=0<br />If for some reason the peripheral rejects the connection, just change this parameter to 1-4. When the connection is successful, the peripheral accepts a non-compliant range (which **shall** be 5-16) for the hop interval. |
-| CC2540_connection_req_crash_truncated.py               | Non-compliance<br />Vulnerability | Truncates the connection request to 26 bytes. Triggers CVE-2019-19193 due to non-compliance (TI CC2540 Peripheral accepts truncated packet and assumes 0 for the missing connection parameters). |
-| CC2540_truncated_connection_success.py                 | Non-compliance                    | Forces TI CC2540 peripheral to perform successful connection under a truncated connection request with 28 bytes. The peripheral "assumes" the following for the missing parameters:<br />**channel map**=0x0000000001<br />**hop increment**=0<br />**SCA**=0<br />After the connection, the peripheral will keep sending LL PDUs on channel 1 (see **captures** folder). |
-| DA14680_att_mtu_length_5_malformed_accepted.py         | Non-compliance                    | Sends a truncated ATT MTU request  (Link Layer Length = 5). The peripheral responds to the non-compliant malformed request (see **captures** folder) |
-| DA14680_att_mtu_length_114_silent_overflow_accepted.py | Non-compliance                    | Sends an ATT MTU request padded to 114 bytes (Link Layer Length = 114). The peripheral responds to the non-compliant malformed request (see **captures** folder) |
-| DA14680_att_read_100_silent_overflow_crash.py          | Vulnerability                     | Sends an ATT READ request padded to 114 bytes (Link Layer Length = 114). Triggers CVE-2019-17518 |
-| DA14680_truncated_l2cap_crash.py                       | Vulnerability                     | Sends a truncated ATT READ request  (Link Layer Length = 5). Triggers CVE-2019-17517 |
-
-
+The [extras folder](extras/) contains some additional scripts related to non-compliances and some SweynTooth variants. Check the table of extras scripts on [extras/README.m](extras/README.m)d for more information.
 
 
 

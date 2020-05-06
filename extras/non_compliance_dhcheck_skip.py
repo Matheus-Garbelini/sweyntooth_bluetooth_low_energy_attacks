@@ -59,6 +59,7 @@ fragment_start = False
 fragment_left = 0
 fragment = None
 slave_txaddr = 0  # use public address by default
+run_script = True
 
 # Autoreset colors
 colorama.init(autoreset=True)
@@ -196,6 +197,7 @@ def defragment_l2cap(pkt):
         else:
             return None
     else:
+        fragment_start = False
         return pkt
 
 
@@ -216,7 +218,7 @@ driver.send(scan_req)
 start_timeout('scan_timeout', SCAN_TIMEOUT, scan_timeout)
 
 print(Fore.YELLOW + 'Waiting advertisements from ' + advertiser_address)
-while True:
+while run_script:
     pkt = None
     # Receive packet from the NRF52 Dongle
     data = driver.raw_receive()
@@ -329,6 +331,11 @@ while True:
             update_timeout('scan_timeout')
             # Handle pairing response and so on
             smp_answer = BLESMPServer.send_hci(raw(HCI_Hdr() / HCI_ACL_Hdr() / L2CAP_Hdr() / pkt[SM_Hdr]))
+            # Check if peripheral accepted secure connections pairing
+            if SM_Pairing_Response in pkt:
+                if not (pkt.authentication & 0x08):
+                    print(Fore.RED + 'Peripheral does not accept Secure Connections pairing\nEnding Test...')
+                    run_script = False
             # Start encryption setup early (before DHCheck)
             if SM_Random in pkt:
                 conn_ltk = BLESMPServer.get_ltk()  # Extract ltk, which is calculated after SM_Random

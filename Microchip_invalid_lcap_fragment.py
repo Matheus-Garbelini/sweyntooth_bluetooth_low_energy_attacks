@@ -70,7 +70,7 @@ def scan_timeout():
 
 
 # Open serial port of NRF52 Dongle
-driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename='Microchip_invalid_lcap_fragment.pcap')
+driver = NRF52Dongle(serial_port, '115200', logs_pcap=True, pcap_filename='logs/Microchip_invalid_lcap_fragment.pcap')
 # Send scan request
 scan_req = BTLE() / BTLE_ADV(RxAdd=slave_addr_type) / BTLE_SCAN_REQ(
     ScanA=master_address,

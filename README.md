@@ -31,7 +31,7 @@ nrfutil dfu usb-serial -p COM_PORT -pkg nRF52_driver_firmware.zip
 
 The scripts work on Linux or Windows. You just need to change the `COM_PORT` parameter to match the nRF52840 port name.
 
-##### (Optional nRF52 driver flashing method)
+##### (Alternative nRF52 driver flashing method)
 
 You can alternatively flash the firmware by using the [nRF Connect App for Desktop](https://www.nordicsemi.com/Software-and-tools/Development-Tools/nRF-Connect-for-desktop), which gives a nice interface to flash the hex firmware (**nRF52_driver_firmware.hex**).
 
@@ -48,6 +48,22 @@ The first argument is the serial port name (generally /dev/ttyACM0 on Linux) and
 Taking as example the Key Size Overflow vulnerability,  the following output is given by the script if the vulnerable device hangs after the crash:
 
 ![attack_logo](docs/demo_output.png)
+
+
+
+### Docker image for Linux (optional)
+
+If you wish to use SweynTooth via a docker image to avoid install Python dependencies, you can use the  `docker.sh` helper script to build and run the docker instance or download the prebuild docker image ([link](https://github.com/Matheus-Garbelini/sweyntooth_bluetooth_low_energy_attacks/releases)) available on releases page. The usage of `docker.sh` is described below.
+
+```
+---------  HELP -------------
+sudo ./docker run <script_name> <serial_port> <ble_target_address> - Start any sweyntooth script by its name (<script_name>)
+sudo ./docker build                                                - Build docker container
+sudo ./docker build release                                        - Build docker container and create compressed image for release
+sudo ./docker shell                                                - Start docker container shell
+---------- EXAMPLE ----------
+./docker.sh run extras/Microchip_and_others_non_compliant_connection.py /dev/ttyACM0 f0:f8:f2:da:09:63
+```
 
 
 
@@ -121,7 +137,7 @@ The folder **captures** contains some sample captures of each vulnerability. We 
 
 ### Extras
 
-The [extras folder](extras/) contains some additional scripts related to non-compliances and some SweynTooth variants. Check the table of extras scripts on [extras/README.m](extras/README.m)d for more information.
+The [extras folder](extras/) contains some additional scripts related to non-compliances and some SweynTooth variants. Check the table of extras scripts on [extras/README.md](extras/README.m) for more information.
 
 
 

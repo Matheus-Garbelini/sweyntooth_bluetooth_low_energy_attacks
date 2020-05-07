@@ -143,7 +143,7 @@ while True:
 
             # Yes, we're sending raw link layer messages in Python. Don't tell anyone as this is forbidden!!!
             send(conn_request)
-            wrpcap('CC2540_connection_req_crash.pcap', conn_request)
+            wrpcap('logs/CC2540_connection_req_crash.pcap', conn_request)
             print(Fore.YELLOW + 'Malformed connection request was sent')
 
             # Start the timeout to detect crashes

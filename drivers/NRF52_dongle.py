@@ -1,8 +1,10 @@
 import binascii
-import sys
-import serial
 import os
-sys.path.insert(0,os.getcwd() + '../libs')
+import sys
+
+import serial
+
+sys.path.insert(0, os.getcwd() + '../libs')
 from colorama import Fore
 from scapy.utils import raw, wrpcap
 from scapy.layers.bluetooth4LE import BTLE, NORDIC_BLE
@@ -33,7 +35,7 @@ class NRF52Dongle:
         self.n_log = logs
         self.n_debug = debug
         if pcap_filename == None:
-            self.pcap_filename = os.path.basename(__file__).split('.')[0]+'.pcap'
+            self.pcap_filename = os.path.basename(__file__).split('.')[0] + '.pcap'
         else:
             self.pcap_filename = pcap_filename
 
@@ -44,7 +46,7 @@ class NRF52Dongle:
         print('NRF52 Dongle closed')
 
     def save_pcap(self):
-        wrpcap(self.pcap_filename, self.packets_buffer) # save packet just sent
+        wrpcap(self.pcap_filename, self.packets_buffer)  # save packet just sent
         # del self.packets_buffer
         self.packets_buffer = []
 
@@ -87,7 +89,7 @@ class NRF52Dongle:
 
                 if self.n_debug:
                     print("Hex: " + binascii.hexlify(data).upper())
-                if self.logs_pcap and data != None:
+                if self.logs_pcap is True and data != None:
                     self.packets_buffer.append(NORDIC_BLE(board=75, protocol=2, flags=0x01) / BTLE(data))
 
                 return data

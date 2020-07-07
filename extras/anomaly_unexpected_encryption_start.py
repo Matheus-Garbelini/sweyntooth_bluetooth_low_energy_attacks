@@ -478,10 +478,10 @@ while run_script:
 
                         elif HCI_Cmd_LE_Start_Encryption_Request in res:
                             print(Fore.GREEN + "[!] STK/LTK received from SMP server: " + hexlify(res.ltk).upper())
-
                             conn_ltk = res.ltk
-                            conn_iv = b'\x00' * 4  # set IVm (IV of master)
-                            conn_skd = b'\x00' * 8  # set SKDm (session key diversifier part of master)
+                            if not encryption_enabled:
+                                conn_iv = b'\x00' * 4  # set IVm (IV of master)
+                                conn_skd = b'\x00' * 8  # set SKDm (session key diversifier part of master)
 
                             enc_request = BTLE(
                                 access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_ENC_REQ(ediv=b'\x00',
@@ -536,12 +536,23 @@ while run_script:
                 start_timeout('key_exchange_timeout', KEY_EXCHANGE_TIMEOUT, key_exchange_timeout)
             else:
                 # end connection and notify with a warning
-                print(Fore.YELLOW + '[!] The peripheral is using the previous established LTK')
+                print(Fore.GREEN + '[!] The peripheral is using the previous established LTK')
                 send_encrypted(smp_packet_on_hold)
                 end_connection = False
                 # pkt = BTLE(access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_LENGTH_REQ(
                 #     max_tx_bytes=247 + 4, max_rx_bytes=247 + 4)
                 # send_encrypted(pkt)
+
+        elif LL_PAUSE_ENC_RSP in pkt:
+            encryption_enabled = False
+            driver.logs_pcap = True
+            conn_iv = b'\x00' * 4  # set IVm (IV of master)
+            conn_skd = b'\x00' * 8  # set SKDm (session key diversifier part of master)
+            enc_pause_res = BTLE(
+                access_addr=access_address) / BTLE_DATA() / CtrlPDU() / LL_PAUSE_ENC_RSP()
+            driver.send(enc_pause_res)
+            print(Fore.GREEN + '[!] Encryption Pause procedure reached, removing anomaly summary...')
+            anomalies[enable_secure_connections].pop()
 
         elif LL_REJECT_IND in pkt or SM_Failed in pkt:
             print(Fore.YELLOW + 'Peripheral is rejecting pairing')

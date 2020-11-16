@@ -22,7 +22,11 @@ This PoC uses well maintained libraries such as [Scapy](https://github.com/secde
 
 First, you must make sure to have a **Python2.7** on your system. Secondly, SweynTooth uses the [Nordic nRF52840 Dongle](https://www.nordicsemi.com/?sc_itemid={CDCCA013-FE4C-4655-B20C-1557AB6568C9}) to send/receive raw link layer packets to and from the vulnerable peripheral over the air. It is necessary to flash the driver firmware to the board before starting the Python 2.7 scripts.
 
-The binary of our firmware code is on the `nRF52_driver_firmware.zip` file. You need to install nrfutil tool to flash the firmware on the board. Remember to put the nRF52840 on DFU mode before flashing (reset the USB dongle while it is connected to your PC by pressing the reset button). You can run the following commands to install the Python dependencies and to flash the firmware:
+The binary of our firmware code is on the `nRF52_driver_firmware.zip` file. You need to install nrfutil tool to flash the firmware on the board. **Remember to put the nRF52840 on DFU mode before flashing (reset the USB dongle while it is connected to your PC by pressing the small reset button)**. 
+
+<img src="docs/dongle_reset_button.png" alt="dongle_reset_button" style="zoom: 33%;" />
+
+You can run the following commands to install the Python dependencies and to flash the firmware:
 
 ```shell
 python -m pip install nrfutil pyserial pycryptodome

@@ -20,7 +20,13 @@ This PoC uses well maintained libraries such as [Scapy](https://github.com/secde
 
 ### Getting Started (Installation)
 
-First, you must make sure to have a **Python2.7** on your system. Secondly, SweynTooth uses the [Nordic nRF52840 Dongle](https://www.nordicsemi.com/?sc_itemid={CDCCA013-FE4C-4655-B20C-1557AB6568C9}) to send/receive raw link layer packets to and from the vulnerable peripheral over the air. It is necessary to flash the driver firmware to the board before starting the Python 2.7 scripts.
+First, you must make sure to have a **Python2.7** on your system and the python packages listed on `requirements.txt` file. 
+If you are using Ubuntu, run the following:
+```bash
+sudo apt-get install python2.7
+sudo pip install -r requirements.txt
+```
+Secondly, SweynTooth uses the [Nordic nRF52840 Dongle](https://www.nordicsemi.com/?sc_itemid={CDCCA013-FE4C-4655-B20C-1557AB6568C9}) to send/receive raw link layer packets to and from the vulnerable peripheral over the air. It is necessary to flash the driver firmware to the board before starting the Python 2.7 scripts.
 
 The binary of our firmware code is on the `nRF52_driver_firmware.zip` file. You need to install nrfutil tool to flash the firmware on the board. **Remember to put the nRF52840 on DFU mode before flashing (reset the USB dongle while it is connected to your PC by pressing the small reset button)**. 
 
@@ -37,7 +43,7 @@ The scripts work on Linux or Windows. You just need to change the `COM_PORT` par
 
 ##### (Alternative nRF52 driver flashing method)
 
-You can alternatively flash the firmware by using the [nRF Connect App for Desktop](https://www.nordicsemi.com/Software-and-tools/Development-Tools/nRF-Connect-for-desktop), which gives a nice interface to flash the hex firmware (**nRF52_driver_firmware.hex**).
+If the previous flashing method didn't work, you can also flash the firmware by using the [nRF Connect App for Desktop](https://www.nordicsemi.com/Software-and-tools/Development-Tools/nRF-Connect-for-desktop), which gives a nice interface to flash the hex firmware (**nRF52_driver_firmware.hex**).
 
 ### Running the proof of concept scripts
 

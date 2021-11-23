@@ -27,7 +27,7 @@ pairing_iocap = 0x04  # KeyboardDisplay
 # paring_auth_request = 0x01  # Bounding
 # paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
 # paring_auth_request = 0x04 | 0x01  # MITM + bounding
-paring_auth_request = 0x08 | 0x40 | 0x01  # Le Secure Connection + MITM + bounding
+paring_auth_request = 0x08 | 0x04 | 0x01  # Le Secure Connection + MITM + bounding
 
 # Internal vars
 SCAN_TIMEOUT = 2

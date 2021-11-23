@@ -38,7 +38,7 @@ pairing_iocap = 0x03  # NoInputNoOutput
 # paring_auth_request = 0x01  # Bounding
 paring_auth_request = 0x08 | + 0x01  # Le Secure Connection + bounding
 # paring_auth_request = 0x04 | 0x01  # MITM + bounding
-# paring_auth_request = 0x08 | 0x40 | 0x01  # Le Secure Connection + MITM + bounding
+# paring_auth_request = 0x08 | 0x04 | 0x01  # Le Secure Connection + MITM + bounding
 print(Fore.YELLOW + 'Using IOCap: ' + hex(pairing_iocap) + ', Auth REQ: ' + hex(paring_auth_request))
 # Internal vars
 script_folder = os.path.dirname(os.path.realpath(__file__))
